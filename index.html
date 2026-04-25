@@ -990,11 +990,36 @@ tbody tr:hover td { background: #fafafa; }
                     <div id="bot-test-result" style="font-size:12px;margin-top:8px;line-height:1.5;color:#374151"></div>
                 </div>
 
-                <!-- Webhook URL (опционально) -->
-                <div class="modal-section">
-                    <div class="modal-section-title">🌐 URL вашего сервера <span style="font-size:10px;color:#9ca3af;font-weight:normal">(опционально, для Webhook)</span></div>
-                    <label class="field-lbl">Webhook URL <span class="sub">Если пусто — бот работает в режиме polling (опрос раз в 30 сек)</span></label>
-                    <input class="s-input" type="text" id="bot-webhook" placeholder="https://ваш-сайт.ru/webhook (необязательно)">
+                <!-- Прокси: Cloudflare Worker -->
+                <div class="modal-section" style="border:2px solid #e0e7ff;border-radius:10px;padding:14px 16px;">
+                    <div class="modal-section-title" style="color:#4f46e5">🔧 Прокси-сервер (обязательно для браузера)</div>
+                    <div style="background:#eef2ff;border-radius:8px;padding:12px 14px;margin-bottom:12px;font-size:12px;line-height:1.7;color:#374151">
+                        <b>Почему нужен прокси?</b> MAX API не разрешает запросы напрямую из браузера (CORS).<br>
+                        Решение — бесплатный <b>Cloudflare Worker</b> за 3 минуты:<br><br>
+                        <b>1.</b> Зайдите на <a href="https://workers.cloudflare.com" target="_blank" style="color:#4f46e5;font-weight:600">workers.cloudflare.com</a> → бесплатный аккаунт<br>
+                        <b>2.</b> Нажмите <b>Create Worker</b><br>
+                        <b>3.</b> Замените весь код в редакторе на этот:
+                    </div>
+                    <div style="background:#1e1e2e;border-radius:8px;padding:12px;margin-bottom:10px;position:relative">
+                        <button onclick="copyWorkerCode()" style="position:absolute;top:8px;right:8px;background:#4f46e5;color:white;border:none;border-radius:5px;padding:4px 10px;font-size:11px;cursor:pointer">📋 Копировать</button>
+                        <pre id="worker-code-block" style="margin:0;font-size:11px;color:#a6e3a1;overflow-x:auto;white-space:pre-wrap">export default {
+  async fetch(req) {
+    if (req.method==='OPTIONS') return new Response('',{headers:{'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET,POST,OPTIONS','Access-Control-Allow-Headers':'Content-Type'}});
+    const url = new URL(req.url);
+    const target = url.searchParams.get('target');
+    if (!target) return new Response('Missing target',{status:400});
+    const resp = await fetch(target,{method:req.method,headers:{'Content-Type':'application/json'},body:req.method!=='GET'?req.body:undefined});
+    const data = await resp.text();
+    return new Response(data,{status:resp.status,headers:{'Content-Type':'application/json','Access-Control-Allow-Origin':'*'}});
+  }
+}</pre>
+                    </div>
+                    <div style="font-size:12px;color:#374151;line-height:1.7;margin-bottom:12px">
+                        <b>4.</b> Нажмите <b>Deploy</b> → скопируйте URL вида <code style="background:#f3f4f6;padding:2px 6px;border-radius:4px">https://имя.workers.dev</code><br>
+                        <b>5.</b> Вставьте этот URL в поле ниже → нажмите «Сохранить и проверить»
+                    </div>
+                    <label class="field-lbl">Ваш Cloudflare Worker URL</label>
+                    <input class="s-input" type="text" id="bot-proxy-url" placeholder="https://my-proxy.ваш-ник.workers.dev">
                 </div>
 
                 <!-- Шаблоны -->
@@ -2722,6 +2747,7 @@ function loadBotForm() {
     const tok = document.getElementById('bot-token');
     if (tok) tok.value = c.token || '';
     const wh = document.getElementById('bot-webhook'); if (wh) wh.value = c.webhook || '';
+    const px = document.getElementById('bot-proxy-url'); if (px) px.value = c.proxyUrl || '';
     const en = document.getElementById('bot-enabled');
     if (en) {
         en.checked = !!c.enabled;
@@ -2757,6 +2783,7 @@ function saveBotSettings() {
     const t3 = document.getElementById('bot-tpl-ready');
     if (tok) c.token = tok.value.trim();
     const wh = document.getElementById('bot-webhook'); if (wh) c.webhook = wh.value.trim();
+    const px = document.getElementById('bot-proxy-url'); if (px) c.proxyUrl = px.value.trim();
     if (en && !locked) c.enabled = en.checked;
     if (t1) c.tplNew = t1.value;
     if (t2) c.tplAccepted = t2.value;
@@ -2776,87 +2803,104 @@ function updateBotStatusUI() {
 }
 
 // MAX Messenger Bot API
-// botapi.tamtam.chat не имеет CORS-заголовков → используем прокси
 const MAX_API = 'https://botapi.tamtam.chat';
 
-// GET через allorigins.win — возвращает {contents, status}
+// Получить URL прокси из настроек
+function getProxyBase() {
+    return (getBotCfg().proxyUrl || '').trim().replace(/\/+$/, '');
+}
+
+// Сделать запрос — через свой прокси (Cloudflare Worker) или напрямую
 async function maxGet(path) {
     const token = (getBotCfg().token || '').trim();
     if (!token) return { ok: false, _noToken: true };
     const targetUrl = MAX_API + path + '?access_token=' + token;
-    // Пробуем напрямую
+    const proxy = getProxyBase();
+
+    // Если задан прокси — используем его
+    if (proxy) {
+        try {
+            const proxyUrl = proxy + '?target=' + encodeURIComponent(targetUrl);
+            const r = await fetch(proxyUrl);
+            const text = await r.text();
+            if (r.ok) {
+                try {
+                    const j = JSON.parse(text);
+                    return { ok: true, data: j, via: 'proxy' };
+                } catch(parseErr) {
+                    return { ok: false, _netError: true, message: 'Прокси вернул не JSON: ' + text.slice(0,80) };
+                }
+            }
+            return { ok: false, status: r.status, data: {message: text.slice(0,100)}, via: 'proxy' };
+        } catch(e) {
+            return { ok: false, _netError: true, message: 'Прокси: ' + e.message };
+        }
+    }
+
+    // Без прокси — пробуем напрямую
     try {
         const r = await fetch(targetUrl);
-        if (r.ok) {
-            const j = await r.json();
-            return { ok: true, data: j, via: 'direct' };
-        }
-    } catch(e) {}
-    // allorigins.win
-    try {
-        const proxyUrl = 'https://api.allorigins.win/get?url=' + encodeURIComponent(targetUrl);
-        const r = await fetch(proxyUrl);
-        if (r.ok) {
-            const wrapper = await r.json();
-            if (wrapper && wrapper.status && wrapper.status.http_code >= 400) {
-                const data = JSON.parse(wrapper.contents || '{}');
-                return { ok: false, status: wrapper.status.http_code, data };
-            }
-            if (wrapper && wrapper.contents) {
-                const data = JSON.parse(wrapper.contents);
-                return { ok: true, data, via: 'allorigins' };
-            }
-        }
-    } catch(e) {}
-    // corsproxy.io
-    try {
-        const r = await fetch('https://corsproxy.io/?' + encodeURIComponent(targetUrl));
-        if (r.ok) {
-            const data = await r.json();
-            return { ok: true, data, via: 'corsproxy' };
-        }
-    } catch(e) {}
-    return { ok: false, _netError: true, message: 'Все прокси недоступны' };
+        if (r.ok) { const j = await r.json(); return { ok: true, data: j, via: 'direct' }; }
+        const j = await r.json().catch(() => ({}));
+        return { ok: false, status: r.status, data: j };
+    } catch(e) {
+        return { ok: false, _netError: true, message: 'Нужен прокси. Настройте Cloudflare Worker (инструкция в настройках бота).' };
+    }
 }
 
-// POST через corsproxy.io
 async function maxPost(path, body) {
     const token = (getBotCfg().token || '').trim();
     if (!token) return { ok: false, _noToken: true };
     const targetUrl = MAX_API + path + '?access_token=' + token;
-    // Напрямую
+    const proxy = getProxyBase();
+
+    if (proxy) {
+        try {
+            const r = await fetch(proxy + '?target=' + encodeURIComponent(targetUrl), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body)
+            });
+            return { ok: r.ok, via: 'proxy' };
+        } catch(e) { return { ok: false, _netError: true }; }
+    }
+
     try {
         const r = await fetch(targetUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body)
         });
-        if (r.ok) return { ok: true, via: 'direct' };
-    } catch(e) {}
-    // corsproxy.io POST
-    try {
-        const r = await fetch('https://corsproxy.io/?' + encodeURIComponent(targetUrl), {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body)
-        });
-        if (r.ok) return { ok: true, via: 'corsproxy' };
-    } catch(e) {}
-    // allorigins не поддерживает POST — last resort через no-cors
-    try {
-        await fetch(targetUrl, {
-            method: 'POST', mode: 'no-cors',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body)
-        });
-        return { ok: true, via: 'no-cors' };
-    } catch(e) {}
-    return { ok: false, _netError: true };
+        return { ok: r.ok, via: 'direct' };
+    } catch(e) {
+        // no-cors — отправляет запрос, ответ недоступен
+        try {
+            await fetch(targetUrl, { method: 'POST', mode: 'no-cors',
+                headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+            return { ok: true, via: 'no-cors' };
+        } catch(e2) { return { ok: false, _netError: true }; }
+    }
 }
 
 async function maxRequest(method, path, body) {
     if (method === 'POST') return await maxPost(path, body);
     return await maxGet(path);
+}
+
+function copyWorkerCode() {
+    const el = document.getElementById('worker-code-block');
+    if (!el) return;
+    const text = el.textContent;
+    if (navigator.clipboard) {
+        navigator.clipboard.writeText(text).then(() => {
+            const btn = el.parentElement.querySelector('button');
+            if (btn) { btn.textContent = '✅ Скопировано!'; setTimeout(() => btn.textContent = '📋 Копировать', 2000); }
+        });
+    } else {
+        const ta = document.createElement('textarea');
+        ta.value = text; document.body.appendChild(ta);
+        ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
+    }
 }
 
 function toggleBotTokenVisibility(btn) {
@@ -2868,33 +2912,46 @@ function toggleBotTokenVisibility(btn) {
 
 async function testBotConnection() {
     const el = document.getElementById('bot-test-result');
-    const tokInp = document.getElementById('bot-token');
-    if (tokInp && tokInp.value.trim()) {
-        const c = getBotCfg(); c.token = tokInp.value.trim(); saveBotCfgStore(c);
+    // Сохраняем всё что есть в форме
+    saveBotSettings();
+    const c = getBotCfg();
+    const token = (c.token || '').trim();
+    const proxy = (c.proxyUrl || '').trim();
+
+    if (!token) { if (el) el.innerHTML = '⚠️ Введите токен'; return; }
+
+    if (el) el.innerHTML = '⏳ Проверяем...<br><small style="color:#9ca3af">Прокси: ' + (proxy || 'не задан') + '</small>';
+
+    // Сначала проверим сам прокси
+    if (proxy) {
+        try {
+            const pingResp = await fetch(proxy + '?target=https://botapi.tamtam.chat/me?access_token=ping_test');
+            const pingText = await pingResp.text();
+            if (el) el.innerHTML += '<br><small style="color:#6b7280">Прокси ответил: HTTP ' + pingResp.status + ' — ' + pingText.slice(0,80) + '</small>';
+        } catch(pingErr) {
+            if (el) el.innerHTML = '❌ Прокси не отвечает: <b>' + pingErr.message + '</b>'
+                + '<br><small>URL прокси: ' + proxy + '</small>';
+            return;
+        }
     }
-    if (!(getBotCfg().token || '').trim()) {
-        if (el) el.innerHTML = 'Введите токен'; return;
-    }
-    if (el) el.innerHTML = 'Подключаемся...';
+
     const r = await maxGet('/me');
-    if (r._noToken) { if (el) el.innerHTML = 'Введите токен'; return; }
+    if (r._noToken) { if (el) el.innerHTML = '⚠️ Токен не найден'; return; }
     if (r._netError) {
-        if (el) el.innerHTML = '<b>Ошибка сети:</b> ' + r.message
-            + '<br><small style="color:#6b7280">Попробуйте разместить файл на хостинге (tiiny.host)</small>';
+        if (el) el.innerHTML = '❌ ' + r.message;
         return;
     }
     if (r.ok && r.data) {
         const d = r.data;
         const name = d.name || d.username || d.user_id || 'OK';
-        const viaStr = r.via && r.via !== 'direct' ? ' <small style="color:#6b7280">(через ' + r.via + ')</small>' : '';
+        const viaStr = r.via ? ' <small style="color:#10b981">через ' + r.via + '</small>' : '';
         if (el) el.innerHTML = '✅ Подключено! Бот: <b>' + name + (d.username ? ' (@' + d.username + ')' : '') + '</b>' + viaStr;
-        const c = getBotCfg(); c.enabled = true; saveBotCfgStore(c);
+        c.enabled = true; saveBotCfgStore(c);
         const en = document.getElementById('bot-enabled'); if (en) en.checked = true;
         updateBotStatusUI();
     } else {
         const msg = (r.data && (r.data.message || r.data.code)) || ('HTTP ' + r.status);
-        if (el) el.innerHTML = 'Ошибка MAX API: <b>' + msg + '</b>'
-            + '<br><small style="color:#6b7280">Ответ: ' + JSON.stringify(r.data).slice(0, 100) + '</small>';
+        if (el) el.innerHTML = '⚠️ MAX API: <b>' + msg + '</b><br><small>' + JSON.stringify(r.data).slice(0,100) + '</small>';
     }
 }
 
