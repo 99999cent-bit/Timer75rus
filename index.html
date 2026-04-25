@@ -2775,23 +2775,88 @@ function updateBotStatusUI() {
     else { dot.style.background='#d1d5db'; if(txt) txt.textContent='Выключен'; }
 }
 
-// MAX Messenger Bot API (botapi.tamtam.chat = официальный API MAX/TamTam)
+// MAX Messenger Bot API
+// botapi.tamtam.chat не имеет CORS-заголовков → используем прокси
 const MAX_API = 'https://botapi.tamtam.chat';
 
-async function maxRequest(method, path, body) {
+// GET через allorigins.win — возвращает {contents, status}
+async function maxGet(path) {
     const token = (getBotCfg().token || '').trim();
     if (!token) return { ok: false, _noToken: true };
-    const url = MAX_API + path + '?access_token=' + token;
+    const targetUrl = MAX_API + path + '?access_token=' + token;
+    // Пробуем напрямую
     try {
-        const opts = method === 'POST'
-            ? { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) }
-            : {};
-        const resp = await fetch(url, opts);
-        const json = await resp.json().catch(() => ({}));
-        return { ok: resp.ok, status: resp.status, data: json };
-    } catch(e) {
-        return { ok: false, _netError: true, message: e.message };
-    }
+        const r = await fetch(targetUrl);
+        if (r.ok) {
+            const j = await r.json();
+            return { ok: true, data: j, via: 'direct' };
+        }
+    } catch(e) {}
+    // allorigins.win
+    try {
+        const proxyUrl = 'https://api.allorigins.win/get?url=' + encodeURIComponent(targetUrl);
+        const r = await fetch(proxyUrl);
+        if (r.ok) {
+            const wrapper = await r.json();
+            if (wrapper && wrapper.status && wrapper.status.http_code >= 400) {
+                const data = JSON.parse(wrapper.contents || '{}');
+                return { ok: false, status: wrapper.status.http_code, data };
+            }
+            if (wrapper && wrapper.contents) {
+                const data = JSON.parse(wrapper.contents);
+                return { ok: true, data, via: 'allorigins' };
+            }
+        }
+    } catch(e) {}
+    // corsproxy.io
+    try {
+        const r = await fetch('https://corsproxy.io/?' + encodeURIComponent(targetUrl));
+        if (r.ok) {
+            const data = await r.json();
+            return { ok: true, data, via: 'corsproxy' };
+        }
+    } catch(e) {}
+    return { ok: false, _netError: true, message: 'Все прокси недоступны' };
+}
+
+// POST через corsproxy.io
+async function maxPost(path, body) {
+    const token = (getBotCfg().token || '').trim();
+    if (!token) return { ok: false, _noToken: true };
+    const targetUrl = MAX_API + path + '?access_token=' + token;
+    // Напрямую
+    try {
+        const r = await fetch(targetUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+        if (r.ok) return { ok: true, via: 'direct' };
+    } catch(e) {}
+    // corsproxy.io POST
+    try {
+        const r = await fetch('https://corsproxy.io/?' + encodeURIComponent(targetUrl), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+        if (r.ok) return { ok: true, via: 'corsproxy' };
+    } catch(e) {}
+    // allorigins не поддерживает POST — last resort через no-cors
+    try {
+        await fetch(targetUrl, {
+            method: 'POST', mode: 'no-cors',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+        return { ok: true, via: 'no-cors' };
+    } catch(e) {}
+    return { ok: false, _netError: true };
+}
+
+async function maxRequest(method, path, body) {
+    if (method === 'POST') return await maxPost(path, body);
+    return await maxGet(path);
 }
 
 function toggleBotTokenVisibility(btn) {
@@ -2811,7 +2876,7 @@ async function testBotConnection() {
         if (el) el.innerHTML = 'Введите токен'; return;
     }
     if (el) el.innerHTML = 'Подключаемся...';
-    const r = await maxRequest('GET', '/me');
+    const r = await maxGet('/me');
     if (r._noToken) { if (el) el.innerHTML = 'Введите токен'; return; }
     if (r._netError) {
         if (el) el.innerHTML = '<b>Ошибка сети:</b> ' + r.message
@@ -2821,7 +2886,8 @@ async function testBotConnection() {
     if (r.ok && r.data) {
         const d = r.data;
         const name = d.name || d.username || d.user_id || 'OK';
-        if (el) el.innerHTML = 'Подключено! Бот: <b>' + name + (d.username ? ' (@' + d.username + ')' : '') + '</b>';
+        const viaStr = r.via && r.via !== 'direct' ? ' <small style="color:#6b7280">(через ' + r.via + ')</small>' : '';
+        if (el) el.innerHTML = '✅ Подключено! Бот: <b>' + name + (d.username ? ' (@' + d.username + ')' : '') + '</b>' + viaStr;
         const c = getBotCfg(); c.enabled = true; saveBotCfgStore(c);
         const en = document.getElementById('bot-enabled'); if (en) en.checked = true;
         updateBotStatusUI();
@@ -2836,7 +2902,7 @@ async function testBotConnection() {
 async function pollBotSubscribers() {
     const el = document.getElementById('bot-sub-count');
     if (el) el.textContent = 'Загрузка...';
-    const r = await maxRequest('GET', '/updates');
+    const r = await maxGet('/updates');
     if (r._netError) { if (el) el.textContent = 'Ошибка сети: ' + r.message; return; }
     if (r._noToken)  { if (el) el.textContent = 'Введите токен'; return; }
     if (!r.ok)       { if (el) el.textContent = 'Ошибка API: ' + JSON.stringify(r.data).slice(0,60); return; }
@@ -2910,7 +2976,7 @@ async function botSendToOrder(o, tplKey, num) {
     const tpl = c[tplKey];
     if (!tpl) return;
     const text = botFillTemplate(tpl, o, num);
-    await maxRequest('POST', '/messages', { recipient: { user_id: sub.userId }, text: text });
+    await maxPost('/messages', { recipient: { user_id: sub.userId }, text: text });
 }
 
 async function botSendBroadcast(text, subIdxs, attachmentUrl, attachmentType) {
@@ -2924,7 +2990,7 @@ async function botSendBroadcast(text, subIdxs, attachmentUrl, attachmentType) {
         if (attachmentUrl && attachmentType) {
             body.attachments = [{ type: attachmentType, payload: { url: attachmentUrl } }];
         }
-        const r = await maxRequest('POST', '/messages', body);
+        const r = await maxPost('/messages', body);
         if (r && r.ok) sent++;
         await new Promise(function(resolve){ setTimeout(resolve, 150); });
     }
@@ -3066,4 +3132,4 @@ setupPoll();
 if (cfg.url) fetchOrders();
 </script>
 </body>
-            </html>
+    </html>
