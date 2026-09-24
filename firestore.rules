@@ -1,0 +1,187 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() { return request.auth != null; }
+    function isSelf(uid) { return isSignedIn() && request.auth.uid == uid; }
+    function myProfile() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+    function isAdmin() { return isSignedIn() && myProfile().isAdmin == true; }
+    function isBlocked() { return isSignedIn() && myProfile().blocked == true; }
+
+    match /users/{uid} {
+      allow read: if isSignedIn();
+      allow create: if isSelf(uid)
+                    && request.resource.data.uid == uid
+                    && request.resource.data.isAdmin == false
+                    && request.resource.data.blocked == false;
+      allow update: if isAdmin()
+                    || (isSelf(uid)
+                        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['avatarUrl','photos','firstName','lastName','age','phone','socialLinks','emailVisible','showOnline','discoverable','lastActive','retentionMinutes','fontScale','theme','chatBackground','sidebarBackground','chatPatternOpacity','sidebarPatternOpacity','accentColor','accentOpacity','outBubbleColor','outBubbleOpacity','inBubbleColor','inBubbleOpacity','contentPanelColor','contentPanelOpacity','notificationsEnabled','notificationSoundEnabled','bellSoundEnabled','notificationMelody','notificationVolume','ringtoneAudioMelody','ringtoneAudioVolume','ringtoneVideoMelody','ringtoneVideoVolume','readReceiptsEnabled','allowAudioCalls','allowVideoCalls','status','gender','location','relationshipStatus','visibleInDiscovery','lastViewedCallsTab','lastViewedReactionsTab','lastViewedFriendRequestsTab','pinHash','pinSalt','pinEnabled','duressPinHash','duressPinSalt','duressPinEnabled','fcmTokens']));
+      allow delete: if isAdmin() || isSelf(uid);
+    }
+
+    match /usernames/{name} {
+      allow read: if true;
+      allow create: if isSignedIn() && request.resource.data.uid == request.auth.uid;
+      allow delete: if isAdmin() || (isSignedIn() && resource.data.uid == request.auth.uid);
+      allow update: if false;
+    }
+
+    match /emails/{emailLower} {
+      allow read: if true;
+      allow create: if isSignedIn() && request.resource.data.uid == request.auth.uid;
+      allow delete: if isAdmin() || (isSignedIn() && resource.data.uid == request.auth.uid);
+      allow update: if false;
+    }
+
+    match /contacts/{uid} {
+      allow read, write: if isSelf(uid);
+    }
+
+    match /config/{doc} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /calls/{chatId} {
+      allow read: if isSignedIn() && (request.auth.uid == resource.data.callerUid || request.auth.uid == resource.data.calleeUid);
+      allow create: if isSignedIn() && (request.auth.uid == request.resource.data.callerUid || request.auth.uid == request.resource.data.calleeUid);
+      allow update: if isSignedIn() && (request.auth.uid == resource.data.callerUid || request.auth.uid == resource.data.calleeUid);
+      match /callerCandidates/{cid} {
+        allow read, write: if isSignedIn() && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
+      }
+      match /calleeCandidates/{cid} {
+        allow read, write: if isSignedIn() && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
+      }
+      match /reactions/{rid} {
+        allow read, create, delete: if isSignedIn() && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
+      }
+    }
+
+    match /callLogs/{logId} {
+      allow read: if isSignedIn() && request.auth.uid in resource.data.participants;
+      allow create: if isSignedIn() && request.auth.uid in request.resource.data.participants;
+      allow update: if isSignedIn() && request.auth.uid in resource.data.participants
+                    && request.resource.data.participants == resource.data.participants;
+      allow delete: if isSignedIn() && request.auth.uid in resource.data.participants;
+    }
+
+    match /profileLikes/{likeId} {
+      allow read: if isSignedIn() && (resource == null || request.auth.uid == resource.data.fromUid || request.auth.uid == resource.data.toUid);
+      allow create: if isSignedIn() && request.auth.uid == request.resource.data.fromUid;
+      allow delete: if isSignedIn() && (request.auth.uid == resource.data.fromUid || request.auth.uid == resource.data.toUid);
+    }
+
+    match /friendRequests/{reqId} {
+      allow read: if isSignedIn() && (resource == null || request.auth.uid == resource.data.fromUid || request.auth.uid == resource.data.toUid);
+      allow create: if isSignedIn() && request.auth.uid == request.resource.data.fromUid && request.resource.data.status == 'pending';
+      allow update: if isSignedIn() && request.auth.uid == resource.data.toUid && resource.data.status == 'pending'
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']) && request.resource.data.status == 'accepted';
+      allow delete: if isSignedIn() && (request.auth.uid == resource.data.fromUid || request.auth.uid == resource.data.toUid);
+    }
+
+    match /photoLikes/{likeId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && request.auth.uid == request.resource.data.fromUid;
+      allow delete: if isSignedIn() && (request.auth.uid == resource.data.fromUid || request.auth.uid == resource.data.ownerUid);
+    }
+
+    match /communities/{communityId} {
+      allow read: if isSignedIn() && (resource == null || request.auth.uid in resource.data.members
+                    || exists(/databases/$(database)/documents/communityInvites/$(communityId + '__' + request.auth.uid)));
+      allow create: if isSignedIn() && request.auth.uid == request.resource.data.creatorUid
+                    && request.resource.data.members == [request.auth.uid]
+                    && request.resource.data.admins == [request.auth.uid];
+      allow update: if isSignedIn() && request.resource.data.creatorUid in request.resource.data.members && (
+                      request.auth.uid in resource.data.admins
+                      || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['members'])
+                          && (request.auth.uid in request.resource.data.members || request.auth.uid in resource.data.members))
+                    );
+      allow delete: if isSignedIn() && request.auth.uid == resource.data.creatorUid;
+    }
+
+    match /communityInvites/{inviteId} {
+      allow read: if isSignedIn() && (resource == null || request.auth.uid == resource.data.fromUid || request.auth.uid == resource.data.toUid);
+      allow create: if isSignedIn() && request.auth.uid == request.resource.data.fromUid && request.resource.data.status == 'pending';
+      allow delete: if isSignedIn() && (request.auth.uid == resource.data.fromUid || request.auth.uid == resource.data.toUid);
+    }
+
+    match /notifications/{notifId} {
+      allow read: if isSignedIn() && request.auth.uid == resource.data.toUid;
+      allow create: if isSignedIn() && request.resource.data.toUid is string && request.resource.data.toUid != request.auth.uid;
+      allow update: if isSignedIn() && request.auth.uid == resource.data.toUid
+                    && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['read']);
+      allow delete: if isSignedIn() && request.auth.uid == resource.data.toUid;
+    }
+
+    match /chats/{chatId} {
+      allow read: if isSignedIn() && (resource == null || request.auth.uid in resource.data.participants || isAdmin());
+      allow create: if isSignedIn() && !isBlocked() && (request.auth.uid in request.resource.data.participants || (isAdmin() && request.resource.data.isSupport == true));
+      allow update: if isSignedIn() && !isBlocked() && (
+                      isAdmin()
+                      || (request.auth.uid in resource.data.participants && request.resource.data.participants == resource.data.participants)
+                      || (resource.data.isCommunity == true
+                          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['participants','usernames','emails'])
+                          && (request.auth.uid in resource.data.participants || request.auth.uid in request.resource.data.participants))
+                    );
+      allow delete: if isSignedIn() && (request.auth.uid in resource.data.participants || isAdmin());
+    }
+
+    match /messages/{messageId} {
+      allow read: if isSignedIn()
+                  && (request.auth.uid in get(/databases/$(database)/documents/chats/$(resource.data.chatId)).data.participants || isAdmin());
+      allow create: if isSignedIn() && !isBlocked()
+                    && request.resource.data.from == request.auth.uid
+                    && (request.auth.uid in get(/databases/$(database)/documents/chats/$(request.resource.data.chatId)).data.participants || isAdmin());
+      allow update: if isSignedIn() && !isBlocked()
+                    && request.auth.uid in get(/databases/$(database)/documents/chats/$(resource.data.chatId)).data.participants
+                    && (
+                      (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['hiddenFor'])
+                       && request.auth.uid in request.resource.data.hiddenFor)
+                      || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reactions'])
+                      || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['transcript'])
+                      || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['content','edited'])
+                          && resource.data.from == request.auth.uid)
+                    );
+      allow delete: if isSignedIn() && !isBlocked()
+                    && request.auth.uid in get(/databases/$(database)/documents/chats/$(resource.data.chatId)).data.participants;
+    }
+
+    // ===== Истории =====
+    function canSeeStory(d) {
+      return d.authorUid == request.auth.uid || d.audienceAll == true || request.auth.uid in d.audience;
+    }
+    function storyDoc(storyId) {
+      return get(/databases/$(database)/documents/stories/$(storyId)).data;
+    }
+    match /stories/{storyId} {
+      allow read: if isSignedIn() && (canSeeStory(resource.data) || isAdmin());
+      allow create: if isSignedIn() && !isBlocked()
+                    && request.resource.data.authorUid == request.auth.uid
+                    && request.resource.data.audience is list
+                    && request.resource.data.audienceAll is bool
+                    && request.resource.data.expireAt is int
+                    && request.resource.data.expireAt <= request.time.toMillis() + 49 * 3600 * 1000;
+      allow update: if false;
+      allow delete: if isSignedIn() && (resource.data.authorUid == request.auth.uid || isAdmin());
+
+      match /chunks/{n} {
+        allow read: if isSignedIn() && (canSeeStory(resource.data) || isAdmin());
+        allow create: if isSignedIn() && !isBlocked() && request.resource.data.authorUid == request.auth.uid;
+        allow delete: if isSignedIn() && (resource.data.authorUid == request.auth.uid || isAdmin());
+      }
+      match /views/{viewerUid} {
+        allow read: if isSignedIn() && (isSelf(viewerUid) || storyDoc(storyId).authorUid == request.auth.uid || isAdmin());
+        allow create, update: if isSelf(viewerUid) && !isBlocked() && canSeeStory(storyDoc(storyId));
+        allow delete: if isSignedIn() && (storyDoc(storyId).authorUid == request.auth.uid || isAdmin());
+      }
+    }
+
+    // ===== Музыка: избранное и плейлисты (только списки треков, без файлов) =====
+    match /music/{uid} {
+      allow read, write: if isSelf(uid) && !isBlocked();
+    }
+  }
+}
