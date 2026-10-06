@@ -71,11 +71,11 @@
   });
 })();
 </script>
-<link rel="stylesheet" href="app.css?v=166" data-app onerror="__appFallback('css')">
+<link rel="stylesheet" href="app.css?v=170" data-app onerror="__appFallback('css')">
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js" defer></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js" defer></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js" defer></script>
-<script src="app.js?v=166" defer data-app onerror="__appFallback('js')"></script>
+<script src="app.js?v=170" defer data-app onerror="__appFallback('js')"></script>
 
 
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -289,6 +289,7 @@
             <button class="subtab-btn active" data-msubtab="mix"><span class="subtab-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M7.5 12c1.5-3 3-3 4.5 0s3 3 4.5 0"/></svg></span>Микс</button>
             <button class="subtab-btn" data-msubtab="mine"><span class="subtab-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20s-7.5-4.6-7.5-10A4.2 4.2 0 0 1 12 7.4 4.2 4.2 0 0 1 19.5 10c0 5.4-7.5 10-7.5 10z"/></svg></span>Моя музыка</button>
             <button class="subtab-btn" data-msubtab="radio"><span class="subtab-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="2"/><path d="M16.2 7.8a6 6 0 0 1 0 8.4"/><path d="M7.8 16.2a6 6 0 0 1 0-8.4"/><path d="M19 5a10 10 0 0 1 0 14"/><path d="M5 19A10 10 0 0 1 5 5"/></svg></span>Радио</button>
+            <button class="subtab-btn" data-msubtab="jamendo"><span class="subtab-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></span>Jamendo</button>
           </div>
           <div class="chat-list music-body" id="music-body"></div>
           <input type="file" id="music-file-input" accept="audio/*" multiple style="display:none;">
@@ -719,6 +720,8 @@
 <input type="file" id="story-input-photo" accept="image/*" capture="environment" style="display:none;">
 <input type="file" id="story-input-video" accept="video/*" capture="environment" style="display:none;">
 <input type="file" id="story-input-gallery" accept="image/*,video/*" multiple style="display:none;">
+<input type="file" id="story-input-gvideo" accept="video/*" multiple style="display:none;">
+<input type="file" id="story-more-video" accept="video/*" multiple style="display:none;">
 
 <div id="story-pick-sheet" class="story-sheet-overlay" style="display:none;">
   <div class="story-sheet">
@@ -726,9 +729,10 @@
     <div class="story-sheet-title">Новая история</div>
     <button type="button" class="story-sheet-item" data-story-pick="maskcam"><span>✨</span>Камера с масками <small>фото и видео</small></button>
     <button type="button" class="story-sheet-item" data-story-pick="photo"><span>📷</span>Снять фото</button>
-    <button type="button" class="story-sheet-item" data-story-pick="video"><span>🎥</span>Снять видео <small>до 30 с</small></button>
+    <button type="button" class="story-sheet-item" data-story-pick="video"><span>🎥</span>Снять видео <small>до 60 с</small></button>
     <button type="button" class="story-sheet-item" data-story-pick="music"><span>🎵</span>Только музыка <small>трек-обложка</small></button>
-    <button type="button" class="story-sheet-item" data-story-pick="gallery"><span>🖼</span>Выбрать из галереи</button>
+    <button type="button" class="story-sheet-item" data-story-pick="gallery"><span>🖼</span>Фото из галереи</button>
+    <button type="button" class="story-sheet-item" data-story-pick="gvideo"><span>🎬</span>Видео из галереи <small>длинное — выберете фрагмент</small></button>
     <button type="button" class="story-sheet-cancel" data-story-pick="cancel">Отмена</button>
   </div>
 </div>
