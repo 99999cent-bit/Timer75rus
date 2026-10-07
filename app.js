@@ -262,7 +262,10 @@ window.__appLoaded=!0;let firebaseConfig={apiKey:"AIzaSyCqHBCbqGSuo4V2FpQ9QICg00
     const ep = String((state.appConfig && state.appConfig.ttsEndpoint) || '').trim().replace(/\/(voices|tts)\/?$/i, '').replace(/\/+$/, '');
     const tries = [];
     let fnErr = '';
-    if(ep && window.__ttsEp) tries.push(async ()=>{ const r = await fetch(__ttsEp(ep, 'cc') + '&' + p); if(!r.ok){ let m = 'функция ответила ' + r.status; try{ const jj = await r.json(); if(jj && jj.error) m = jj.error; }catch(er){} fnErr = m; throw new Error(m); } const jj = await r.json(); if(!Array.isArray(jj) && !(jj && jj.results)){ fnErr = 'функция вернула не каталог — обновите её код'; throw new Error(fnErr); } return jj; });
+    /* ROUND 177: Cloudflare-воркер — посредник и для каталога, и для треков ccMixter (пробуем первым) */
+    const cf = String((state.appConfig && state.appConfig.ccProxy) || 'https://chat-tts.99999cent.workers.dev').trim().replace(/\/+$/, '');
+    if(cf) tries.push(async ()=>{ const r = await fetch(cf + '/cc?' + p); if(!r.ok){ let m = 'воркер ответил ' + r.status; try{ const jj = await r.json(); if(jj && jj.error) m = jj.error; }catch(er){} fnErr = m; throw new Error(m); } const jj = await r.json(); if(!Array.isArray(jj)){ fnErr = 'воркер вернул не каталог — обновите его код (chat-tts-worker.js)'; throw new Error(fnErr); } return jj; });
+    if(ep && window.__ttsEp) tries.push(async ()=>{ const r = await fetch(__ttsEp(ep, 'cc') + '&' + p); if(!r.ok){ let m = 'функция ответила ' + r.status; try{ const jj = await r.json(); if(jj && jj.error) m = jj.error; }catch(er){} fnErr = fnErr || m; throw new Error(m); } const jj = await r.json(); if(!Array.isArray(jj) && !(jj && jj.results)){ fnErr = 'функция вернула не каталог — обновите её код'; throw new Error(fnErr); } return jj; });
     tries.push(async ()=>{ const r = await fetch(`${CC}?f=json&${p}`); if(!r.ok) throw new Error('http ' + r.status); return await r.json(); });
     tries.push(()=> jsonp(`${CC}?f=jsonp&${p}`, 'callback', 7000));
     for(const t of tries){ try{ j = await t(); if(j) break; }catch(e){ lastErr = e; } }
@@ -325,3 +328,19 @@ window.__appLoaded=!0;let firebaseConfig={apiKey:"AIzaSyCqHBCbqGSuo4V2FpQ9QICg00
     setTimeout(()=>{ try{ musicNext(); }catch(e){} }, 600);
   });
 })();
+
+/* ROUND 177: адрес Cloudflare-воркера для ccMixter — в «Администрирование → Сервер» */
+renderAdminServer = (function(orig){ return function(...a){ const r = orig.apply(this, a); try{
+  const body = document.getElementById('admin-body'); if(!body || document.getElementById('as-ccp')) return r;
+  const w = document.createElement('div'); w.style.cssText = 'margin-top:22px;border-top:1px solid var(--border);padding-top:16px;';
+  w.innerHTML = `<div style="font-size:calc(14px * var(--font-scale));font-weight:600;margin-bottom:4px;">🎛 ccMixter — посредник</div>
+    <p class="hint" style="margin-bottom:10px;">Cloudflare-воркер <b>chat-tts</b> (код <b>chat-tts-worker.js</b>) отдаёт каталог и треки ccMixter. Адрес вида https://chat-tts.имя.workers.dev</p>
+    <div class="field"><input id="as-ccp" value="${escapeHtml((state.appConfig && state.appConfig.ccProxy) || 'https://chat-tts.99999cent.workers.dev')}" placeholder="https://chat-tts.имя.workers.dev"></div>
+    <button class="btn-primary" id="as-ccp-save" style="margin:0;">Сохранить</button><div id="as-ccp-msg" style="margin-top:8px;"></div>`;
+  body.appendChild(w);
+  document.getElementById('as-ccp-save').onclick = async ()=>{ const v = document.getElementById('as-ccp').value.trim().replace(/\/+$/, ''); const m = document.getElementById('as-ccp-msg');
+    try{ await db.collection('config').doc('app').set({ccProxy: v}, {merge: true}); state.appConfig = Object.assign({}, state.appConfig, {ccProxy: v}); m.innerHTML = '<div class="hint">Проверяю…</div>';
+      try{ const rr = await fetch(v + '/cc?limit=3&sort=rank'); const jj = await rr.json(); m.innerHTML = Array.isArray(jj) ? `<div class="info-box">✅ Работает — ccMixter отдал ${jj.length} трека.</div>` : `<div class="error-box">${escapeHtml(jj.error || 'Воркер ответил не каталогом — обновите его код.')}</div>`; }
+      catch(e){ m.innerHTML = '<div class="error-box">Воркер не открывается — адреса workers.dev в России часто доступны только через VPN.</div>'; }
+    }catch(e){ m.innerHTML = '<div class="error-box">Не удалось сохранить.</div>'; } };
+}catch(e){} return r; }; })(renderAdminServer);
