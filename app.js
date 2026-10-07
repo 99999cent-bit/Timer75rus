@@ -255,17 +255,18 @@ window.__appLoaded=!0;let firebaseConfig={apiKey:"AIzaSyCqHBCbqGSuo4V2FpQ9QICg00
   const cc = {tag: '', cache: {}, busy: ''};
   async function ccQuery(key, tag, q){
     if(cc.cache[key]) return cc.cache[key];
-    const p = new URLSearchParams({limit: '40', sort: q ? 'rank' : 'rank', datasource: 'uploads'});
+    const p = new URLSearchParams({limit: '40', sort: 'rank'});
     if(tag) p.set('tags', tag); if(q){ p.set('search', q); p.set('search_type', 'any'); }
     /* ROUND 175: ccMixter не даёт браузеру читать каталог напрямую (нет CORS) — спрашиваем через функцию Yandex Cloud */
     let j = null, lastErr = null;
     const ep = String((state.appConfig && state.appConfig.ttsEndpoint) || '').trim().replace(/\/(voices|tts)\/?$/i, '').replace(/\/+$/, '');
     const tries = [];
-    if(ep && window.__ttsEp) tries.push(async ()=>{ const r = await fetch(__ttsEp(ep, 'cc') + '&' + p); if(!r.ok) throw new Error('посредник ' + r.status); return await r.json(); });
+    let fnErr = '';
+    if(ep && window.__ttsEp) tries.push(async ()=>{ const r = await fetch(__ttsEp(ep, 'cc') + '&' + p); if(!r.ok){ let m = 'функция ответила ' + r.status; try{ const jj = await r.json(); if(jj && jj.error) m = jj.error; }catch(er){} fnErr = m; throw new Error(m); } const jj = await r.json(); if(!Array.isArray(jj) && !(jj && jj.results)){ fnErr = 'функция вернула не каталог — обновите её код'; throw new Error(fnErr); } return jj; });
     tries.push(async ()=>{ const r = await fetch(`${CC}?f=json&${p}`); if(!r.ok) throw new Error('http ' + r.status); return await r.json(); });
     tries.push(()=> jsonp(`${CC}?f=jsonp&${p}`, 'callback', 7000));
     for(const t of tries){ try{ j = await t(); if(j) break; }catch(e){ lastErr = e; } }
-    if(!j){ const err = new Error(ep ? 'Каталог не открылся. Обновите функцию chat-tts в Yandex Cloud (новый код yc-tts-function.js) — она работает посредником для ccMixter.' : 'ccMixter не даёт приложению прочитать каталог напрямую. Нужна функция chat-tts в Yandex Cloud (та же, что для озвучки) — подключите её в «Администрирование → Сервер».'); err.cc = true; throw err; }
+    if(!j){ const err = new Error(ep ? (fnErr ? 'Причина: ' + fnErr : 'Каталог не открылся. Обновите функцию chat-tts в Yandex Cloud (новый код yc-tts-function.js) — она работает посредником для ccMixter.') : 'ccMixter не даёт приложению прочитать каталог напрямую. Нужна функция chat-tts в Yandex Cloud (та же, что для озвучки) — подключите её в «Администрирование → Сервер».'); err.cc = true; throw err; }
     const rows = Array.isArray(j) ? j : (j && j.results) || [];
     return (cc.cache[key] = rows.map(u=>{
       const f = (u.files || []).find(x=> /mp3|mpeg/i.test((x.file_format_info && x.file_format_info.mime_type) || x.file_name || '')) || (u.files || [])[0];
