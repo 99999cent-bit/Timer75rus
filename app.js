@@ -19,17 +19,8 @@ window.__appLoaded=!0;let firebaseConfig={apiKey:"AIzaSyCqHBCbqGSuo4V2FpQ9QICg00
     cov.style.backgroundImage = a ? `url("${String(a).replace(/"/g, '%22')}")` : 'none'; isl.classList.toggle('mi-has-art', !!a); }, 600);
 
   /* --- строка воспроизведения: в покое — тонкая «живая» волна (как системный плеер Android),
-         при нажатии — большая волна SoundCloud с отражением, листается пальцем --- */
-  const prog = document.getElementById('mi-prog'); if(!prog) return;
-  const bar = prog.querySelector('.mi-bar');
-  const sc = document.createElement('div'); sc.className = 'mi-scrub'; sc.setAttribute('role', 'slider'); sc.setAttribute('aria-label', 'Перемотка');
-  sc.innerHTML = '<canvas class="ms-mini"></canvas>';
-  if(bar) bar.after(sc); else prog.appendChild(sc);
-  const mini = sc.querySelector('canvas');
-  const ov = document.createElement('div'); ov.className = 'ms-open';
-  ov.innerHTML = '<div class="ms-time"><b>0:00</b><i></i><span>0:00</span></div><canvas class="ms-big"></canvas>';
-  isl.appendChild(ov);
-  const big = ov.querySelector('canvas'), tB = ov.querySelector('.ms-time b'), tS = ov.querySelector('.ms-time span');
+         при нажатии — большая волна SoundCloud с отражением, листается пальцем.
+         Одна заготовка — для развёрнутого виджета и для полного плеера --- */
   const N = 150; let hs = [], key = '';
   const fmt = (s)=>{ s = Math.max(0, Math.floor(s || 0)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
   function seedWave(k){
@@ -47,83 +38,105 @@ window.__appLoaded=!0;let firebaseConfig={apiKey:"AIzaSyCqHBCbqGSuo4V2FpQ9QICg00
   const dur = ()=>{ const d = musicAudio.duration; return isFinite(d) && d > 0 ? d : ((music.track && music.track.dur) || 0); };
   const frac = ()=>{ const d = dur(); return d ? Math.max(0, Math.min(1, musicAudio.currentTime / d)) : 0; };
   function fit(cv){ const r = cv.getBoundingClientRect(), dpr = Math.min(3, window.devicePixelRatio || 1); const w = Math.max(1, Math.round(r.width * dpr)), h = Math.max(1, Math.round(r.height * dpr)); if(cv.width !== w || cv.height !== h){ cv.width = w; cv.height = h; } const g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); return [g, r.width, r.height]; }
-
-  /* маленькая строка: пройденная часть — бегущая волнистая линия, остаток — тонкая прямая */
-  let amp = 0, phase = 0, raf = 0, lastT = 0;
-  function drawMini(now){
-    raf = 0;
-    if(!isl.classList.contains('expanded') || drag) return;
-    const [g, W, H] = fit(mini); const playing = !musicAudio.paused && !(music.track && music.track.src === 'radio');
-    const dt = Math.min(64, now - (lastT || now)); lastT = now;
-    amp += ((playing ? 2.6 : 0) - amp) * Math.min(1, dt / 160); phase += dt * 0.0055;
-    const pad = 6, x = pad + frac() * (W - pad * 2), my = H / 2;
-    g.clearRect(0, 0, W, H); g.lineCap = 'round';
-    g.strokeStyle = 'rgba(255,255,255,.28)'; g.lineWidth = 3; g.beginPath(); g.moveTo(Math.min(W - pad, x + 7), my); g.lineTo(W - pad, my); g.stroke();
-    g.strokeStyle = 'rgba(255,255,255,.95)'; g.lineWidth = 3; g.beginPath();
-    for(let px = pad; px <= x - 6; px += 1){ const y = my + Math.sin(px / 18 * Math.PI * 2 - phase) * amp; px === pad ? g.moveTo(px, y) : g.lineTo(px, y); }
-    g.stroke();
-    g.fillStyle = '#fff'; g.beginPath(); g.arc(x, my, 6, 0, Math.PI * 2); g.fill();
-    if(playing || Math.abs(amp) > .05) raf = requestAnimationFrame(drawMini);
-  }
-  const kick = ()=>{ if(!raf){ lastT = 0; raf = requestAnimationFrame(drawMini); } };
-  ['play', 'pause', 'timeupdate', 'loadedmetadata', 'seeked'].forEach(ev=> musicAudio.addEventListener(ev, kick));
-  new MutationObserver(kick).observe(isl, {attributes: true, attributeFilter: ['class']});
-  document.addEventListener('visibilitychange', kick);
-
-  /* большая волна SoundCloud: центр — позиция; пройдено — оранжевое, впереди — светлое, снизу отражение */
-  const BW = 3, GAP = 1.6, STEP = BW + GAP;
-  function drawBig(f, f0){
-    const [g, W, H] = fit(big); const w = wave(); const total = N * STEP; const cx = W / 2; const base = H * .64, top = base - 2, bot = base + 2;
-    const topMax = H * .6, botMax = H * .3;
-    g.clearRect(0, 0, W, H);
-    for(let i = 0; i < N; i++){
-      const x = cx + (i / N - f) * total; if(x < -STEP || x > W + STEP) continue;
-      const pos = (i + .5) / N; const played = pos <= f; const between = f0 != null && ((pos > Math.min(f, f0) && pos <= Math.max(f, f0)));
-      let cT, cB;
-      if(between && f > f0){ cT = 'rgba(255,85,0,.55)'; cB = 'rgba(255,170,130,.35)'; }
-      else if(between){ cT = 'rgba(255,255,255,.45)'; cB = 'rgba(255,255,255,.22)'; }
-      else if(played){ cT = '#ff5500'; cB = 'rgba(255,176,138,.85)'; }
-      else { cT = 'rgba(255,255,255,.92)'; cB = 'rgba(255,255,255,.45)'; }
-      g.fillStyle = cT; g.fillRect(x, top - w[i] * topMax, BW, w[i] * topMax);
-      g.fillStyle = cB; g.fillRect(x, bot, BW, w[i] * botMax);
-    }
-  }
-
-  let drag = null;
+  const isRadio = ()=> !!(music.track && music.track.src === 'radio');
   const tick = (ms)=>{ try{ if(typeof hapticPrefs === 'undefined' || hapticPrefs.on !== false) navigator.vibrate && navigator.vibrate(ms || 5); }catch(e){} };
-  function upd(){
-    const d = dur(); tB.textContent = fmt(drag.f * d); tS.textContent = fmt(d); drawBig(drag.f, drag.f0);
-    const step = Math.floor(drag.f * N); if(step !== drag.step){ if(drag.step >= 0 && step % 2 === 0) tick(5); drag.step = step; }
-    const edge = drag.f <= 0 || drag.f >= 1; if(edge && !drag.edge) tick(18); drag.edge = edge;
-    try{ touchIslandTimer(); }catch(e){}
+  const BW = 3, GAP = 1.6, STEP = BW + GAP;
+
+  function makeScrub(o){
+    const sc = document.createElement('div'); sc.className = 'mi-scrub ' + (o.cls || ''); sc.setAttribute('role', 'slider'); sc.setAttribute('aria-label', 'Перемотка');
+    sc.innerHTML = '<canvas class="ms-mini"></canvas>'; o.mount(sc);
+    const mini = sc.querySelector('canvas');
+    const ov = document.createElement('div'); ov.className = 'ms-open ' + (o.ovCls || '');
+    ov.innerHTML = '<div class="ms-time"><b>0:00</b><i></i><span>0:00</span></div><canvas class="ms-big"></canvas>';
+    o.ovParent.appendChild(ov);
+    const big = ov.querySelector('canvas'), tB = ov.querySelector('.ms-time b'), tS = ov.querySelector('.ms-time span');
+    let amp = 0, phase = 0, raf = 0, lastT = 0, drag = null;
+    function drawMini(now){
+      raf = 0; if(!o.active() || drag) return;
+      const [g, W, H] = fit(mini); if(W < 4) return; const playing = !musicAudio.paused && !isRadio();
+      const dt = Math.min(64, now - (lastT || now)); lastT = now;
+      amp += ((playing ? (o.amp || 2.6) : 0) - amp) * Math.min(1, dt / 160); phase += dt * 0.0055;
+      const pad = 6, x = isRadio() ? W - pad : pad + frac() * (W - pad * 2), my = H / 2, lw = o.lw || 3;
+      g.clearRect(0, 0, W, H); g.lineCap = 'round';
+      g.strokeStyle = 'rgba(255,255,255,.28)'; g.lineWidth = lw; g.beginPath(); g.moveTo(Math.min(W - pad, x + 7), my); g.lineTo(W - pad, my); g.stroke();
+      g.strokeStyle = 'rgba(255,255,255,.95)'; g.lineWidth = lw; g.beginPath();
+      const wl = o.wl || 18;
+      for(let px = pad; px <= x - 6; px += 1){ const y = my + Math.sin(px / wl * Math.PI * 2 - phase) * amp; px === pad ? g.moveTo(px, y) : g.lineTo(px, y); }
+      g.stroke();
+      if(!isRadio()){ g.fillStyle = '#fff'; g.beginPath(); g.arc(x, my, o.knob || 6, 0, Math.PI * 2); g.fill(); }
+      if(playing || Math.abs(amp) > .05) raf = requestAnimationFrame(drawMini);
+    }
+    const kick = ()=>{ if(!raf){ lastT = 0; raf = requestAnimationFrame(drawMini); } };
+    ['play', 'pause', 'timeupdate', 'loadedmetadata', 'seeked'].forEach(ev=> musicAudio.addEventListener(ev, kick));
+    document.addEventListener('visibilitychange', kick); window.addEventListener('resize', kick);
+    function drawBig(f, f0){
+      const [g, W, H] = fit(big); const w = wave(); const total = N * STEP; const cx = W / 2; const base = H * .64, top = base - 2, bot = base + 2;
+      const topMax = H * .6, botMax = H * .3;
+      g.clearRect(0, 0, W, H);
+      for(let i = 0; i < N; i++){
+        const x = cx + (i / N - f) * total; if(x < -STEP || x > W + STEP) continue;
+        const pos = (i + .5) / N; const played = pos <= f; const between = f0 != null && ((pos > Math.min(f, f0) && pos <= Math.max(f, f0)));
+        let cT, cB;
+        if(between && f > f0){ cT = 'rgba(255,85,0,.55)'; cB = 'rgba(255,170,130,.35)'; }
+        else if(between){ cT = 'rgba(255,255,255,.45)'; cB = 'rgba(255,255,255,.22)'; }
+        else if(played){ cT = '#ff5500'; cB = 'rgba(255,176,138,.85)'; }
+        else { cT = 'rgba(255,255,255,.92)'; cB = 'rgba(255,255,255,.45)'; }
+        g.fillStyle = cT; g.fillRect(x, top - w[i] * topMax, BW, w[i] * topMax);
+        g.fillStyle = cB; g.fillRect(x, bot, BW, w[i] * botMax);
+      }
+    }
+    function upd(){
+      const d = dur(); tB.textContent = fmt(drag.f * d); tS.textContent = fmt(d); drawBig(drag.f, drag.f0);
+      const step = Math.floor(drag.f * N); if(step !== drag.step){ if(drag.step >= 0 && step % 2 === 0) tick(5); drag.step = step; }
+      const edge = drag.f <= 0 || drag.f >= 1; if(edge && !drag.edge) tick(18); drag.edge = edge;
+      o.onUse && o.onUse();
+    }
+    sc.addEventListener('pointerdown', (e)=>{
+      if(!o.active() || isRadio() || !dur()) return;
+      e.stopPropagation(); e.preventDefault();
+      try{ sc.setPointerCapture(e.pointerId); }catch(er){}
+      const f0 = frac(); drag = {id: e.pointerId, x: e.clientX, f0, f: f0, step: -1, edge: false, moved: false};
+      o.onStart && o.onStart(); ov.classList.add('on'); tick(12);
+      requestAnimationFrame(()=>{ if(drag) upd(); });
+    });
+    sc.addEventListener('pointermove', (e)=>{
+      if(!drag || e.pointerId !== drag.id) return; e.stopPropagation(); e.preventDefault();
+      const dx = e.clientX - drag.x; if(Math.abs(dx) > 3) drag.moved = true;
+      drag.f = Math.max(0, Math.min(1, drag.f0 - dx / (N * STEP)));            /* тянем волну влево — вперёд, вправо — назад */
+      upd();
+    });
+    const end = (e)=>{
+      if(!drag || (e && e.pointerId !== drag.id)) return; if(e) e.stopPropagation();
+      const d0 = drag; drag = null;
+      if(d0.moved){ const d = dur(); if(d){ try{ musicAudio.currentTime = d0.f * d; }catch(er){} } tick(10); }
+      setTimeout(()=>{ ov.classList.remove('on'); o.onEnd && o.onEnd(); kick(); }, d0.moved ? 160 : 60);
+      o.onUse && o.onUse();
+    };
+    sc.addEventListener('pointerup', end);
+    sc.addEventListener('pointercancel', end);
+    ['click', 'touchstart', 'touchmove', 'touchend'].forEach(ev=> sc.addEventListener(ev, (e)=>{ e.stopPropagation(); }, {passive: true}));
+    return {kick, dragging: ()=> !!drag};
   }
-  sc.addEventListener('pointerdown', (e)=>{
-    if(!isl.classList.contains('expanded') || (music.track && music.track.src === 'radio') || !dur()) return;
-    e.stopPropagation(); e.preventDefault();
-    try{ sc.setPointerCapture(e.pointerId); }catch(er){}
-    const f0 = frac(); drag = {id: e.pointerId, x: e.clientX, f0, f: f0, step: -1, edge: false, moved: false};
-    try{ clearTimeout(miState.timer); }catch(er){}
-    isl.classList.add('mi-scrubbing'); ov.classList.add('on'); tick(12);
-    requestAnimationFrame(()=>{ if(drag) upd(); });
-  });
-  sc.addEventListener('pointermove', (e)=>{
-    if(!drag || e.pointerId !== drag.id) return; e.stopPropagation(); e.preventDefault();
-    const dx = e.clientX - drag.x; if(Math.abs(dx) > 3) drag.moved = true;
-    drag.f = Math.max(0, Math.min(1, drag.f0 - dx / (N * STEP)));            /* тянем волну влево — вперёд, вправо — назад */
-    upd();
-  });
-  const end = (e)=>{
-    if(!drag || (e && e.pointerId !== drag.id)) return; if(e) e.stopPropagation();
-    const d0 = drag; drag = null;
-    if(d0.moved){ const d = dur(); if(d){ try{ musicAudio.currentTime = d0.f * d; }catch(er){} } tick(10); }
-    setTimeout(()=>{ ov.classList.remove('on'); isl.classList.remove('mi-scrubbing'); kick(); }, d0.moved ? 160 : 60);
-    try{ touchIslandTimer(); }catch(er){}
-  };
-  sc.addEventListener('pointerup', end);
-  sc.addEventListener('pointercancel', end);
-  ['click', 'touchstart', 'touchmove', 'touchend'].forEach(ev=> sc.addEventListener(ev, (e)=>{ e.stopPropagation(); }, {passive: true}));
-  /* пока листаем — виджет не сворачивается */
-  if(typeof collapseIsland === 'function'){ const c0 = collapseIsland; collapseIsland = function(...a){ if(drag) return; return c0.apply(this, a); }; window.collapseIsland = collapseIsland; }
+
+  /* развёрнутый (средний) виджет */
+  const prog = document.getElementById('mi-prog');
+  let S1 = null;
+  if(prog){
+    const bar = prog.querySelector('.mi-bar');
+    S1 = makeScrub({mount: (el)=>{ if(bar) bar.after(el); else prog.appendChild(el); }, ovParent: isl, active: ()=> isl.classList.contains('expanded'),
+      onStart: ()=>{ try{ clearTimeout(miState.timer); }catch(e){} isl.classList.add('mi-scrubbing'); }, onEnd: ()=> isl.classList.remove('mi-scrubbing'), onUse: ()=>{ try{ touchIslandTimer(); }catch(e){} }});
+    new MutationObserver(S1.kick).observe(isl, {attributes: true, attributeFilter: ['class']});
+    /* пока листаем — виджет не сворачивается */
+    if(typeof collapseIsland === 'function'){ const c0 = collapseIsland; collapseIsland = function(...a){ if(S1.dragging()) return; return c0.apply(this, a); }; window.collapseIsland = collapseIsland; }
+  }
+  /* полный плеер */
+  const mp = document.getElementById('music-player'), seekWrap = document.getElementById('mpl-seek-wrap');
+  if(mp && seekWrap){
+    const S2 = makeScrub({cls: 'mpl-scrub', ovCls: 'mpl-ms-open', amp: 3.4, lw: 4, wl: 22, knob: 7.5,
+      mount: (el)=> seekWrap.insertBefore(el, seekWrap.firstChild), ovParent: mp, active: ()=> mp.style.display !== 'none',
+      onStart: ()=> mp.classList.add('mpl-scrubbing'), onEnd: ()=> mp.classList.remove('mpl-scrubbing')});
+    new MutationObserver(S2.kick).observe(mp, {attributes: true, attributeFilter: ['style']});
+  }
 })();
 
 /* ============================================================
@@ -244,19 +257,28 @@ window.__appLoaded=!0;let firebaseConfig={apiKey:"AIzaSyCqHBCbqGSuo4V2FpQ9QICg00
     if(cc.cache[key]) return cc.cache[key];
     const p = new URLSearchParams({limit: '40', sort: q ? 'rank' : 'rank', datasource: 'uploads'});
     if(tag) p.set('tags', tag); if(q){ p.set('search', q); p.set('search_type', 'any'); }
-    const j = await getJson(`${CC}?f=json&${p}`, `${CC}?f=jsonp&${p}`, 'callback');
+    /* ROUND 175: ccMixter не даёт браузеру читать каталог напрямую (нет CORS) — спрашиваем через функцию Yandex Cloud */
+    let j = null, lastErr = null;
+    const ep = String((state.appConfig && state.appConfig.ttsEndpoint) || '').trim().replace(/\/(voices|tts)\/?$/i, '').replace(/\/+$/, '');
+    const tries = [];
+    if(ep && window.__ttsEp) tries.push(async ()=>{ const r = await fetch(__ttsEp(ep, 'cc') + '&' + p); if(!r.ok) throw new Error('посредник ' + r.status); return await r.json(); });
+    tries.push(async ()=>{ const r = await fetch(`${CC}?f=json&${p}`); if(!r.ok) throw new Error('http ' + r.status); return await r.json(); });
+    tries.push(()=> jsonp(`${CC}?f=jsonp&${p}`, 'callback', 7000));
+    for(const t of tries){ try{ j = await t(); if(j) break; }catch(e){ lastErr = e; } }
+    if(!j){ const err = new Error(ep ? 'Каталог не открылся. Обновите функцию chat-tts в Yandex Cloud (новый код yc-tts-function.js) — она работает посредником для ccMixter.' : 'ccMixter не даёт приложению прочитать каталог напрямую. Нужна функция chat-tts в Yandex Cloud (та же, что для озвучки) — подключите её в «Администрирование → Сервер».'); err.cc = true; throw err; }
     const rows = Array.isArray(j) ? j : (j && j.results) || [];
     return (cc.cache[key] = rows.map(u=>{
       const f = (u.files || []).find(x=> /mp3|mpeg/i.test((x.file_format_info && x.file_format_info.mime_type) || x.file_name || '')) || (u.files || [])[0];
       if(!f || !f.download_url) return null;
-      return {src: 'ccmixter', id: String(u.upload_id), title: u.upload_name || 'Трек', artist: u.user_real_name || u.user_name || '', art: (u.user_avatar_url || '').replace(/^http:/, 'https:'), dur: parseDur(f.file_format_info && f.file_format_info.ps), url: String(f.download_url).replace(/^http:/, 'https:'), genre: 'ccmixter'};
+      const alt = (u.files || []).filter(x=> x !== f && /mp3|mpeg/i.test(((x.file_format_info || {}).mime_type) || x.file_name || '')).map(x=> String(x.download_url || '').replace(/^http:/, 'https:')).filter(Boolean);
+      return {src: 'ccmixter', alt, id: String(u.upload_id), title: u.upload_name || 'Трек', artist: u.user_real_name || u.user_name || '', art: (u.user_avatar_url || '').replace(/^http:/, 'https:'), dur: parseDur(f.file_format_info && f.file_format_info.ps), url: String(f.download_url).replace(/^http:/, 'https:'), genre: 'ccmixter'};
     }).filter(Boolean));
   }
   function renderCc(q){
     const key = q ? 'q:' + q : 't:' + cc.tag;
     const top = (q ? '' : chipsHtml('cct', CC_TAGS, cc.tag)) + `<div class="m-jam-note">ccMixter — треки и ремиксы музыкантов под Creative Commons · бесплатно</div>`;
     const list = cc.cache[key];
-    if(!list){ setMusicBody(top + loading); if(cc.busy !== key){ cc.busy = key; ccQuery(key, q ? '' : cc.tag, q).then(()=>{ cc.busy = ''; if(music.subtab === 'ccmixter') renderMusic(); }).catch((e)=>{ cc.busy = ''; setMusicBody(top + `<div class="m-empty"><b>ccMixter не ответил</b>${H(e.message || 'Проверьте интернет')}</div>`); }); } return; }
+    if(!list){ setMusicBody(top + loading); if(cc.busy !== key){ cc.busy = key; ccQuery(key, q ? '' : cc.tag, q).then(()=>{ cc.busy = ''; if(music.subtab === 'ccmixter') renderMusic(); }).catch((e)=>{ cc.busy = ''; setMusicBody(top + `<div class="m-empty"><b>ccMixter не ответил</b>${H(e.message || 'Проверьте интернет')}<br><button type="button" class="m-chip" data-ccretry style="margin-top:10px">↻ Повторить</button></div>`); }); } return; }
     setMusicBody(top + (list.length ? section(q ? `Найдено в ccMixter: ${list.length}` : (CC_TAGS.find(t=> t[0] === cc.tag) || CC_TAGS[0])[1]) + rowsHtml('ccmixter', list) : '<div class="m-empty"><b>Ничего не нашлось</b>Попробуйте другое слово или жанр</div>'));
   }
 
@@ -284,6 +306,7 @@ window.__appLoaded=!0;let firebaseConfig={apiKey:"AIzaSyCqHBCbqGSuo4V2FpQ9QICg00
   document.addEventListener('click', (e)=>{
     if(!e.target.closest) return;
     const c1 = e.target.closest('#music-body [data-iac]'); if(c1){ e.stopPropagation(); ia.cat = c1.dataset.iac; renderMusic(); return; }
+    if(e.target.closest('#music-body [data-ccretry]')){ e.stopPropagation(); cc.cache = {}; cc.busy = ''; renderMusic(); return; }
     const c2 = e.target.closest('#music-body [data-cct]'); if(c2){ e.stopPropagation(); cc.tag = c2.dataset.cct; renderMusic(); return; }
     const it = e.target.closest('#music-body .ia-item[data-iaid]'); if(it){ e.stopPropagation(); ia.item = it.dataset.iaid; renderMusic(); try{ document.getElementById('music-body').scrollTop = 0; }catch(er){} return; }
     if(e.target.closest('#music-body [data-iaback]')){ e.stopPropagation(); ia.item = null; renderMusic(); return; }
@@ -291,4 +314,13 @@ window.__appLoaded=!0;let firebaseConfig={apiKey:"AIzaSyCqHBCbqGSuo4V2FpQ9QICg00
   }, true);
   /* при смене подвкладки — архив снова со списка */
   if(tabs) tabs.addEventListener('click', (e)=>{ const b = e.target.closest('[data-msubtab]'); if(b && b.dataset.msubtab !== 'archive') ia.item = null; }, true);
+})();
+/* ROUND 175: если файл ccMixter/архива не открылся — сообщаем и пробуем следующий трек */
+(function srcErrorHandling(){
+  musicAudio.addEventListener('error', ()=>{
+    const t = music && music.track; if(!t || (t.src !== 'ccmixter' && t.src !== 'archive')) return;
+    if(t.alt && t.alt.length){ const nx = t.alt.shift(); t.url = nx; musicAudio.src = nx; musicAudio.play().catch(()=>{}); return; }
+    toast((t.src === 'ccmixter' ? 'ccMixter' : 'Архив') + ': этот трек не открывается — включаю следующий');
+    setTimeout(()=>{ try{ musicNext(); }catch(e){} }, 600);
+  });
 })();
