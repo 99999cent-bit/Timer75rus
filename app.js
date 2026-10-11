@@ -2661,10 +2661,11 @@ window.NOTO_ANIM_GROUPS=[{"name":"Смайлики","list":"😀|😃|😄|😁|
    • нажатие на уведомление открывает нужный чат
 ============================================================ */
 (function pushViaRailway(){
-  const DEF = 'https://chat-backend-production-ee1e.up.railway.app';
+  const DEF = 'https://chat-backend-production-8996.up.railway.app';
   const base = ()=>{
     let u = (state.appConfig && state.appConfig.pushUrl != null ? state.appConfig.pushUrl : DEF) || '';
     u = String(u).trim().replace(/\/+$/, '').replace(/\/(send-push|push\/[a-z]+)$/i, '');
+    if(/chat-backend-production-ee1e\.up\.railway\.app/i.test(u)) u = DEF;   /* старый адрес Railway больше не работает */
     return u;
   };
   window.__pushBase = base;
