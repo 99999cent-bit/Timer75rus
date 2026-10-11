@@ -5549,3 +5549,153 @@ Object.assign(window.__AM_ORIGIN || (window.__AM_ORIGIN = {}), {lid: '50% 0%', s
   if(!watchUser()){ const t = setInterval(()=>{ if(watchUser()) clearInterval(t); }, 500); setTimeout(()=> clearInterval(t), 60000); }
   window.__fsSnapDebug = {mem, put, ready};
 })();
+
+/* ============================================================
+   ROUND 200
+   • расшифровка и перевод голосовых работают без VPN: если адрес
+     ИИ-сервера из России недоступен, запрос идёт через ваш сервер
+     на Railway (он пересылает его дальше); приложение запоминает,
+     какой путь работает, и дальше сразу идёт им;
+   • при расшифровке и переводе переписка стоит на месте — сообщение
+     не «улетает» вверх, пока появляется текст;
+   • озвучка в Android-приложении: голос телефона (Android TTS) вместо
+     браузерного синтеза, которого во встроенном браузере нет
+============================================================ */
+
+/* ---------- 1. ИИ без VPN ---------- */
+(function aiViaServer(){
+  if(typeof aiCall !== 'function' || typeof aiEndpoint !== 'function') return;
+  const LS = (k, v)=>{ try{ if(v === undefined) return localStorage.getItem(k); if(v === null) localStorage.removeItem(k); else localStorage.setItem(k, v); }catch(e){} return null; };
+  const err = (code, extra)=> Object.assign(new Error(code), {code}, extra || {});
+  async function callAt(base, path, body, ms){
+    const u = firebase.auth().currentUser; if(!u) throw err('unauthorized');
+    const tok = await u.getIdToken();
+    const ac = new AbortController(); const t = ms ? setTimeout(()=> ac.abort(), ms) : 0;
+    let r;
+    try{ r = await fetch(base + path, {method: 'POST', headers: {'Content-Type': 'application/json', Authorization: 'Bearer ' + tok}, body: JSON.stringify(body), signal: ac.signal}); }
+    catch(e){ throw err('network'); }
+    finally{ if(t) clearTimeout(t); }
+    let o = {}; try{ o = await r.json(); }catch(e){}
+    if(!r.ok) throw err(o.error || 'http_' + r.status, {detail: o.detail, status: r.status, proxyMissing: r.status === 404 || r.status === 508 || o.error === 'not_configured'});
+    return o;
+  }
+  const proxyBase = ()=>{ try{ const b = window.__pushBase ? __pushBase() : ''; return b ? b + '/ai' : ''; }catch(e){ return ''; } };
+  const recent = (k, h)=>{ const v = +LS(k) || 0; return v && Date.now() - v < h * 3600e3; };
+  aiCall = async function(path, body){
+    const direct = aiEndpoint();
+    if(!direct) throw err('not_configured');
+    const proxy = proxyBase();
+    const useProxyFirst = proxy && recent('aiViaProxy', 12);
+    if(useProxyFirst){
+      try{ return await callAt(proxy, path, body, 180000); }
+      catch(e){ if(e.code !== 'network' && !e.proxyMissing) throw e; LS('aiViaProxy', null); }
+    }
+    try{
+      const o = await callAt(direct, path, body, recent('aiDirectOk', 72) ? 0 : 25000);
+      LS('aiDirectOk', String(Date.now()));
+      return o;
+    }catch(e){
+      if(e.code !== 'network' || !proxy || useProxyFirst) throw e;
+      /* напрямую не достучались (из России без VPN) — через свой сервер */
+      const o = await callAt(proxy, path, body, 180000);
+      LS('aiViaProxy', String(Date.now())); LS('aiDirectOk', null);
+      return o;
+    }
+  };
+  window.aiCall = aiCall;
+})();
+
+/* ---------- 2. расшифровка/перевод: сообщение стоит на месте ---------- */
+(function keepVoiceInPlace(){
+  const box = document.getElementById('messages'); if(!box) return;
+  const D = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollTop');
+  let anchor = null;
+  const rowOf = (id)=> box.querySelector(`.msg-row[data-id="${CSS.escape(id)}"]`);
+  function fix(){
+    if(!anchor) return;
+    if(Date.now() > anchor.until){ anchor = null; return; }
+    const r = rowOf(anchor.id); if(!r) return;
+    const d = r.getBoundingClientRect().top - anchor.top;
+    if(Math.abs(d) > 1){ const cur = D.get.call(box); D.set.call(box, cur + d); }
+  }
+  const release = ()=>{ anchor = null; };
+  ['touchstart', 'wheel', 'pointerdown'].forEach((t)=> box.addEventListener(t, (ev)=>{ if(anchor && !(ev.target.closest && ev.target.closest('.voice-stt-btn, .ai-block'))) release(); }, {passive: true, capture: true}));
+  new MutationObserver(()=>{ if(anchor){ fix(); requestAnimationFrame(fix); } }).observe(box, {childList: true, subtree: true, characterData: true});
+  if(typeof ResizeObserver !== 'undefined') new ResizeObserver(()=>{ if(anchor) fix(); }).observe(box);
+  window.__holdMsgAnchor = (id, ms)=>{
+    const r = rowOf(id); if(!r) return;
+    const br = box.getBoundingClientRect(), rr = r.getBoundingClientRect();
+    if(rr.bottom < br.top || rr.top > br.bottom) return;          /* сообщение не на экране — не держим */
+    anchor = {id, top: rr.top, until: Date.now() + (ms || 60000)};
+    const loop = ()=>{ if(!anchor) return; fix(); requestAnimationFrame(loop); };
+    requestAnimationFrame(loop);
+  };
+  const wrap = (name)=>{
+    const o = window[name]; if(typeof o !== 'function') return;
+    const w = async function(m, ...a){
+      const id = m && m.id;
+      if(id && (!anchor || anchor.id !== id)) window.__holdMsgAnchor(id, 120000);
+      try{ return await o.call(this, m, ...a); }
+      finally{ if(anchor && anchor.id === id) anchor.until = Date.now() + 3000; }
+    };
+    window[name] = w;
+    try{ if(name === 'transcribeMessage') transcribeMessage = w; else if(name === 'translateMessage') translateMessage = w; }catch(e){}
+  };
+  wrap('transcribeMessage'); wrap('translateMessage');
+  /* «прилипание к низу» не должно перебивать */
+  try{ const oh = window.__holdBottom; if(oh) window.__holdBottom = (ms)=>{ if(anchor) return; return oh(ms); }; }catch(e){}
+})();
+
+/* ---------- 3. озвучка голосом телефона (Android-приложение) ---------- */
+(function nativeSpeech(){
+  const A = window.AndroidApp;
+  if(!(A && A.isNative && typeof A.ttsSpeak === 'function')) return;
+  const listeners = {};
+  const emit = (t, ev)=>{ (listeners[t] || []).slice().forEach((f)=>{ try{ f(ev || {type: t}); }catch(e){} }); try{ const h = ss['on' + t]; h && h(ev || {type: t}); }catch(e){} };
+  let voices = [];
+  const loadVoices = ()=>{
+    try{
+      if(!A.ttsAvailable()) return false;
+      const arr = JSON.parse(A.ttsVoices() || '[]');
+      voices = arr.sort((a, b)=> (b.lang.startsWith('ru') - a.lang.startsWith('ru')) || (b.local - a.local) || ((b.q || 0) - (a.q || 0)))
+        .map((v, i)=> ({name: v.name, lang: v.lang, voiceURI: v.name, localService: !!v.local, default: i === 0}));
+      if(!voices.length) voices = [{name: 'ru-RU', lang: 'ru-RU', voiceURI: 'ru-RU', localService: true, default: true}];
+      return true;
+    }catch(e){ return false; }
+  };
+  const queue = new Map(); let seq = 0;
+  const ss = {
+    pending: false, paused: false, onvoiceschanged: null,
+    get speaking(){ try{ return queue.size > 0 || A.ttsSpeaking(); }catch(e){ return queue.size > 0; } },
+    getVoices(){ return voices.slice(); },
+    speak(u){
+      if(!u) return;
+      const id = 'u' + (++seq); queue.set(id, u);
+      const v = u.voice && u.voice.name ? u.voice.name : '';
+      try{ A.ttsSpeak(id, String(u.text || ''), u.lang || (u.voice && u.voice.lang) || 'ru-RU', +u.rate || 1, +u.pitch || 1, v); }
+      catch(e){ queue.delete(id); try{ u.onerror && u.onerror({type: 'error', error: 'synthesis-failed'}); }catch(_){} }
+    },
+    cancel(){ const all = Array.from(queue.values()); queue.clear(); try{ A.ttsStop(); }catch(e){} all.forEach((u)=>{ try{ u.onend && u.onend({type: 'end'}); }catch(e){} }); },
+    pause(){ this.cancel(); }, resume(){},
+    addEventListener(t, f){ (listeners[t] || (listeners[t] = [])).push(f); },
+    removeEventListener(t, f){ const l = listeners[t]; if(l){ const i = l.indexOf(f); if(i >= 0) l.splice(i, 1); } },
+    dispatchEvent(ev){ emit(ev.type, ev); return true; }
+  };
+  window.__nativeTts = (id, ev)=>{
+    const u = queue.get(id); if(!u) return;
+    const e = {type: ev === 'error' ? 'error' : ev, utterance: u, charIndex: 0, elapsedTime: 0};
+    if(ev === 'start'){ try{ u.onstart && u.onstart(e); }catch(_){} }
+    if(ev === 'end' || ev === 'error'){ queue.delete(id); try{ (ev === 'end' ? u.onend : u.onerror) && (ev === 'end' ? u.onend : u.onerror)(e); }catch(_){} }
+    try{ (u.__l && u.__l[e.type] || []).forEach((f)=> f(e)); }catch(_){}
+  };
+  window.__nativeTtsReady = ()=>{ if(loadVoices()) emit('voiceschanged'); };
+  /* своя «фраза»: у встроенной нельзя выбрать голос телефона */
+  function Utter(text){ this.text = text == null ? '' : String(text); this.lang = 'ru-RU'; this.rate = 1; this.pitch = 1; this.volume = 1; this.voice = null; this.onstart = null; this.onend = null; this.onerror = null; this.onboundary = null; this.onpause = null; this.onresume = null; this.onmark = null; this.__l = {}; }
+  Utter.prototype.addEventListener = function(t, f){ (this.__l[t] || (this.__l[t] = [])).push(f); };
+  Utter.prototype.removeEventListener = function(t, f){ const l = this.__l[t]; if(l){ const i = l.indexOf(f); if(i >= 0) l.splice(i, 1); } };
+  try{ Object.defineProperty(window, 'SpeechSynthesisUtterance', {configurable: true, writable: true, value: Utter}); }catch(e){ window.SpeechSynthesisUtterance = Utter; }
+  try{ Object.defineProperty(window, 'speechSynthesis', {configurable: true, get: ()=> ss}); }catch(e){}
+  if(!loadVoices()){
+    let n = 0; const t = setInterval(()=>{ if(loadVoices()){ clearInterval(t); emit('voiceschanged'); } else if(++n > 40) clearInterval(t); }, 500);
+  } else setTimeout(()=> emit('voiceschanged'), 0);
+})();
