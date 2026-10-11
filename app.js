@@ -3219,3 +3219,286 @@ window.NOTO_ANIM_GROUPS=[{"name":"Смайлики","list":"😀|😃|😄|😁|
     setTimeout(push, 8000); setInterval(push, 30000);
   }
 })();
+
+/* ============================================================
+   ROUND 191 — больше звуков уведомлений и звонков + свой звук
+   • 16 новых приятных мелодий (колокольчики, арфа, калимба, дзен…)
+     для сообщений, аудио- и видеозвонков;
+   • «🎵 Свой звук»: любой аудио- или видеофайл с телефона (из видео
+     берётся звук), отдельно для сообщений, аудио- и видеозвонков;
+   • в Android-приложении выбранный звук играет и в системных
+     уведомлениях (когда приложение закрыто).
+============================================================ */
+(function moreSounds(){
+  if(typeof NOTIF_MELODIES === 'undefined') return;
+  const A = window.AndroidApp && window.AndroidApp.isNative ? window.AndroidApp : null;
+
+  /* ---------- инструменты ---------- */
+  function env(g, t, a, peak, d){
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(Math.max(0.0002, peak), t + a);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + Math.max(a + 0.02, d));
+  }
+  function partials(ctx, out, f, t, d, v, list, att){
+    list.forEach(([m, a, dk], i)=>{
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = 'sine'; o.frequency.value = f * m;
+      env(g, t, att || 0.004, v * a, d * (dk || 1));
+      o.connect(g); g.connect(out); o.start(t); o.stop(t + d + 0.1);
+    });
+  }
+  let noiseBuf = null;
+  const noise = (ctx)=>{ if(noiseBuf && noiseBuf.sampleRate === ctx.sampleRate) return noiseBuf; const b = ctx.createBuffer(1, ctx.sampleRate * 0.2, ctx.sampleRate); const d = b.getChannelData(0); for(let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1; return (noiseBuf = b); };
+  const INST = {
+    bell: (ctx, out, f, t, d, v)=> partials(ctx, out, f, t, d, v, [[1, 1], [2.01, .42, .8], [3.02, .22, .6], [4.17, .1, .45], [5.43, .05, .35]]),
+    kalimba: (ctx, out, f, t, d, v)=> partials(ctx, out, f, t, d, v, [[1, 1], [3.0, .28, .35], [5.2, .07, .2]], 0.002),
+    soft: (ctx, out, f, t, d, v)=> partials(ctx, out, f, t, d, v, [[1, 1], [2, .12, .7]], 0.03),
+    bowl: (ctx, out, f, t, d, v)=>{ partials(ctx, out, f, t, d, v * .7, [[1, 1], [2.76, .35, .8], [5.4, .12, .6]], 0.08); partials(ctx, out, f * 1.004, t, d, v * .5, [[1, 1]], 0.1); },
+    rhodes: (ctx, out, f, t, d, v)=>{
+      const trem = ctx.createGain(); trem.gain.value = 1; trem.connect(out);
+      const lfo = ctx.createOscillator(), lg = ctx.createGain(); lfo.frequency.value = 5.5; lg.gain.value = 0.18; lfo.connect(lg); lg.connect(trem.gain); lfo.start(t); lfo.stop(t + d + 0.1);
+      partials(ctx, trem, f, t, d, v, [[1, 1], [2, .3, .6], [3, .08, .4]], 0.006);
+    },
+    pluck: (ctx, out, f, t, d, v)=>{
+      const o = ctx.createOscillator(), lp = ctx.createBiquadFilter(), g = ctx.createGain();
+      o.type = 'triangle'; o.frequency.value = f;
+      lp.type = 'lowpass'; lp.frequency.setValueAtTime(f * 8, t); lp.frequency.exponentialRampToValueAtTime(f * 1.4, t + d);
+      env(g, t, 0.003, v * 1.1, d);
+      o.connect(lp); lp.connect(g); g.connect(out); o.start(t); o.stop(t + d + 0.1);
+    },
+    chirp: (ctx, out, f, t, d, v)=>{
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = 'sine'; o.frequency.setValueAtTime(f, t); o.frequency.exponentialRampToValueAtTime(f * 1.7, t + d);
+      env(g, t, 0.005, v, d + 0.05);
+      o.connect(g); g.connect(out); o.start(t); o.stop(t + d + 0.1);
+    },
+    wood: (ctx, out, f, t, d, v)=>{
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = 'sine'; o.frequency.setValueAtTime(f * 1.5, t); o.frequency.exponentialRampToValueAtTime(f, t + 0.02);
+      env(g, t, 0.001, v, d); o.connect(g); g.connect(out); o.start(t); o.stop(t + d + 0.05);
+      const n = ctx.createBufferSource(), bp = ctx.createBiquadFilter(), ng = ctx.createGain();
+      n.buffer = noise(ctx); bp.type = 'bandpass'; bp.frequency.value = f * 2.5; bp.Q.value = 4;
+      env(ng, t, 0.001, v * .5, 0.04); n.connect(bp); bp.connect(ng); ng.connect(out); n.start(t); n.stop(t + 0.06);
+    }
+  };
+
+  /* ---------- новые мелодии ---------- */
+  const N = (f, t, d, g)=> ({f, t, d, g: g == null ? 1 : g});
+  const ADD = {
+    glass:   {label: '✨ Стекло',       inst: 'bell',    notes: [N(1318.5, 0, .9), N(1975.5, .13, 1.1)]},
+    harp:    {label: '🎼 Арфа',         inst: 'pluck',   notes: [N(523.25, 0, .9), N(659.25, .07, .9), N(784, .14, .9), N(1046.5, .21, 1.1)]},
+    bubble:  {label: '🫧 Пузырьки',     inst: 'chirp',   notes: [N(600, 0, .09), N(800, .11, .09), N(1100, .22, .12)]},
+    crystal: {label: '💎 Кристалл',     inst: 'bell',    notes: [N(2093, 0, .8, .6), N(2637, .09, .9, .6), N(3136, .18, 1.1, .6)]},
+    kalimba: {label: '🪘 Калимба',      inst: 'kalimba', notes: [N(784, 0, .7), N(1175, .14, .7), N(988, .28, .9)]},
+    twinkle: {label: '⭐ Звёздочки',    inst: 'bell',    notes: [N(1568, 0, .4, .55), N(2093, .07, .4, .55), N(2637, .14, .4, .55), N(3136, .21, .7, .55)]},
+    chord:   {label: '🎸 Аккорд',       inst: 'pluck',   notes: [N(392, 0, 1.2), N(494, .03, 1.2), N(587, .06, 1.2), N(784, .09, 1.3)]},
+    wood:    {label: '🪵 Дерево',       inst: 'wood',    notes: [N(900, 0, .12), N(1200, .12, .14)]},
+    lounge:  {label: '🎹 Лаунж',        inst: 'rhodes',  notes: [N(587.3, 0, .9), N(880, .16, 1.1)]},
+    magic:   {label: '🪄 Волшебство',   inst: 'bell',    notes: [1046.5, 1174.7, 1318.5, 1568, 1760, 2093, 2349].map((f, i)=> N(f, i * .045, .5, .45))},
+    zen:     {label: '🧘 Дзен',         inst: 'bowl',    notes: [N(392, 0, 2.2)]},
+    sunrise: {label: '🌅 Рассвет',      inst: 'soft',    notes: [N(523.25, 0, .5), N(659.25, .22, .5), N(784, .44, .9)]},
+    trill:   {label: '🐦 Трель',        inst: 'soft',    notes: [1318.5, 1568, 1318.5, 1568, 1318.5, 1760].map((f, i)=> N(f, i * .07, .12, .8))},
+    duo:     {label: '🎶 Дуэт',         inst: 'kalimba', notes: [N(659.25, 0, .9), N(988, 0, .9, .7), N(1318.5, .18, 1)]},
+    bonus:   {label: '🪙 Бонус',        inst: 'soft',    notes: [N(988, 0, .09), N(1318.5, .08, .4)]},
+    knock:   {label: '✊ Тук-тук',      inst: 'wood',    notes: [N(520, 0, .12), N(520, .17, .12)]}
+  };
+  Object.assign(NOTIF_MELODIES, ADD);
+  /* свой звук — отдельный для сообщений, аудио- и видеозвонков */
+  const SLOTS = {
+    'notif-melody-select': {key: 'custom_msg', pref: 'notificationMelody', max: 6, title: 'сообщений'},
+    'ringtone-audio-select': {key: 'custom_call', pref: 'ringtoneAudioMelody', max: 20, title: 'аудиозвонков'},
+    'ringtone-video-select': {key: 'custom_vcall', pref: 'ringtoneVideoMelody', max: 20, title: 'видеозвонков'}
+  };
+  Object.values(SLOTS).forEach(s=>{ NOTIF_MELODIES[s.key] = {label: '🎵 Свой звук (аудио или видео)…', custom: true, notes: []}; });
+  if(A) NOTIF_MELODIES.system = {label: '📱 Звук телефона', system: true, notes: []};
+
+  /* ---------- хранилище своих звуков (WAV) ---------- */
+  let dbp = null;
+  const idb = ()=> dbp || (dbp = new Promise((res, rej)=>{ const rq = indexedDB.open('notifSounds', 1); rq.onupgradeneeded = ()=> rq.result.createObjectStore('a'); rq.onsuccess = ()=> res(rq.result); rq.onerror = ()=> rej(rq.error); }));
+  const idbGet = async (k)=>{ const d = await idb(); return new Promise((res)=>{ const g = d.transaction('a').objectStore('a').get(k); g.onsuccess = ()=> res(g.result || null); g.onerror = ()=> res(null); }); };
+  const idbPut = async (k, v)=>{ const d = await idb(); return new Promise((res)=>{ const tx = d.transaction('a', 'readwrite'); tx.objectStore('a').put(v, k); tx.oncomplete = res; tx.onerror = res; }); };
+  const decoded = {};
+
+  function wav(samples, rate){
+    const buf = new ArrayBuffer(44 + samples.length * 2), v = new DataView(buf);
+    const w = (o, s)=>{ for(let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+    w(0, 'RIFF'); v.setUint32(4, 36 + samples.length * 2, true); w(8, 'WAVE'); w(12, 'fmt ');
+    v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, rate, true);
+    v.setUint32(28, rate * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, 'data'); v.setUint32(40, samples.length * 2, true);
+    for(let i = 0; i < samples.length; i++){ const s = Math.max(-1, Math.min(1, samples[i])); v.setInt16(44 + i * 2, s < 0 ? s * 0x8000 : s * 0x7FFF, true); }
+    return new Blob([buf], {type: 'audio/wav'});
+  }
+
+  /* файл (аудио или видео) → короткий звук WAV: без тишины в начале, плавное затухание */
+  async function fileToSound(file, maxSec){
+    const ab = await file.arrayBuffer();
+    const AC = window.AudioContext || window.webkitAudioContext;
+    const tmp = new AC();
+    let src;
+    try{ src = await tmp.decodeAudioData(ab.slice(0)); }
+    finally{ try{ tmp.close(); }catch(e){} }
+    const rate = 32000;
+    const ch0 = src.getChannelData(0), ch1 = src.numberOfChannels > 1 ? src.getChannelData(1) : null;
+    let start = 0; for(let i = 0; i < ch0.length; i++){ if(Math.abs(ch0[i]) > 0.02 || (ch1 && Math.abs(ch1[i]) > 0.02)){ start = Math.max(0, i - src.sampleRate * 0.02); break; } }
+    const len = Math.min(src.length - start, Math.floor(src.sampleRate * maxSec));
+    if(len < src.sampleRate * 0.15) throw new Error('в файле нет звука');
+    const off = new OfflineAudioContext(1, Math.ceil(len / src.sampleRate * rate), rate);
+    const b = off.createBufferSource(); b.buffer = src;
+    const g = off.createGain(); const dur = len / src.sampleRate;
+    g.gain.setValueAtTime(0, 0); g.gain.linearRampToValueAtTime(1, 0.01);
+    g.gain.setValueAtTime(1, Math.max(0.02, dur - 0.5)); g.gain.linearRampToValueAtTime(0, dur);
+    b.connect(g); g.connect(off.destination); b.start(0, start / src.sampleRate, dur);
+    const out = (await off.startRendering()).getChannelData(0);
+    let peak = 0; for(const x of out) peak = Math.max(peak, Math.abs(x));
+    const k = peak > 0 ? 0.9 / peak : 1; for(let i = 0; i < out.length; i++) out[i] *= k;
+    return wav(out, rate);
+  }
+
+  /* мелодия → WAV (для системных уведомлений Android) */
+  async function melodyToWav(name){
+    const m = NOTIF_MELODIES[name]; if(!m) return null;
+    const rate = 32000;
+    let total = 0.2;
+    if(m.inst) m.notes.forEach(n=> total = Math.max(total, n.t + n.d + 0.15));
+    else{ let t = 0; m.notes.forEach(n=>{ total = Math.max(total, t + n.dur + 0.1); t += n.freq ? .82 * n.dur : n.dur; }); }
+    const off = new OfflineAudioContext(1, Math.ceil(total * rate), rate);
+    renderMelody(off, m, 0.8, off.destination, 0.01);
+    return wav((await off.startRendering()).getChannelData(0), rate);
+  }
+
+  function renderMelody(ctx, m, s, dest, t0){
+    if(m.inst){
+      const f = INST[m.inst] || INST.soft;
+      m.notes.forEach(n=> f(ctx, dest, n.f, t0 + n.t, n.d, s * n.g));
+    } else {
+      let i = t0;
+      m.notes.forEach(n=>{
+        if(!n.freq){ i += n.dur; return; }
+        const o = ctx.createOscillator(), g = ctx.createGain();
+        o.frequency.value = n.freq; o.type = 'sine';
+        g.gain.setValueAtTime(1e-4, i); g.gain.linearRampToValueAtTime(s, i + .01); g.gain.exponentialRampToValueAtTime(1e-4, i + n.dur);
+        o.connect(g); g.connect(dest); o.start(i); o.stop(i + n.dur + .03); i += .82 * n.dur;
+      });
+    }
+  }
+
+  /* ---------- проигрывание ---------- */
+  const orig = playNotificationSound;
+  playNotificationSound = function(name, vol){
+    const m = NOTIF_MELODIES[name];
+    if(!m || (!m.inst && !m.custom && !m.system)) return orig.apply(this, arguments);
+    try{
+      const ctx = getSharedAudioContext(); if(!ctx) return;
+      if(ctx.state === 'suspended') ctx.resume().catch(()=>{});
+      const s = .32 * Math.max(0, Math.min(1, (vol != null ? vol : 70) / 100));
+      if(m.system) return orig.call(this, 'chime', vol);
+      if(m.custom){ playCustom(name, vol, false); return; }
+      renderMelody(ctx, m, s, ctx.destination, ctx.currentTime + 0.01);
+    }catch(e){}
+  };
+
+  /* свой звук: для сообщений — один раз, для звонка — по кругу, пока звонят */
+  async function playCustom(name, vol, loop){
+    try{
+      const ctx = getSharedAudioContext(); if(!ctx) return null;
+      if(ctx.state === 'suspended') await ctx.resume().catch(()=>{});
+      let buf = decoded[name];
+      if(!buf){ const blob = await idbGet(name); if(!blob){ orig('chime', vol); return null; } buf = decoded[name] = await ctx.decodeAudioData(await blob.arrayBuffer()); }
+      const src = ctx.createBufferSource(), g = ctx.createGain();
+      g.gain.value = .32 * Math.max(0, Math.min(1, (vol != null ? vol : 70) / 100)) * 2.6;
+      src.buffer = buf; src.loop = !!loop; src.connect(g); g.connect(ctx.destination); src.start();
+      return src;
+    }catch(e){ return null; }
+  }
+  if(typeof startIncomingRingtone === 'function' && typeof stopIncomingRingtone === 'function'){
+    const oStart = startIncomingRingtone, oStop = stopIncomingRingtone;
+    let ring = null, ringId = 0;
+    stopIncomingRingtone = function(){ ringId++; if(ring){ try{ ring.stop(); }catch(e){} ring = null; } return oStop.apply(this, arguments); };
+    startIncomingRingtone = function(){
+      const video = typeof callType !== 'undefined' && callType === 'video';
+      const name = video ? state.notifPrefs.ringtoneVideoMelody : state.notifPrefs.ringtoneAudioMelody;
+      const vol = video ? state.notifPrefs.ringtoneVideoVolume : state.notifPrefs.ringtoneAudioVolume;
+      if(!(NOTIF_MELODIES[name] && NOTIF_MELODIES[name].custom)) return oStart.apply(this, arguments);
+      stopIncomingRingtone();
+      const my = ++ringId;
+      playCustom(name, vol, true).then(src=>{ if(my !== ringId){ try{ src && src.stop(); }catch(e){} } else ring = src; });
+    };
+  }
+
+  /* ---------- выбор своего файла в настройках ---------- */
+  function pickFile(){
+    return new Promise((res)=>{
+      const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'audio/*,video/*';
+      inp.onchange = ()=> res(inp.files && inp.files[0] || null);
+      window.addEventListener('focus', function f(){ window.removeEventListener('focus', f); setTimeout(()=> res(inp.files && inp.files[0] || null), 800); });
+      inp.click();
+    });
+  }
+  /* в каждом списке оставляем только «свой звук» этого списка */
+  function tidy(sel){
+    const slot = SLOTS[sel.id]; if(!slot) return;
+    [...sel.options].forEach(o=>{ if(/^custom_/.test(o.value) && o.value !== slot.key) o.remove(); });
+    const own = [...sel.options].find(o=> o.value === slot.key);
+    const name = localStorage.getItem('soundName_' + slot.key);
+    if(own) own.textContent = name ? '🎵 Свой: ' + name : '🎵 Свой звук (аудио или видео)…';
+    if(own && name && !sel.querySelector('option[value="__repick"]')){ const r = document.createElement('option'); r.value = '__repick'; r.textContent = '📂 Выбрать другой файл…'; own.after(r); }
+  }
+  document.addEventListener('change', async (e)=>{
+    const sel = e.target; const slot = sel && SLOTS[sel.id]; if(!slot) return;
+    const want = sel.value === slot.key || sel.value === '__repick';
+    if(!want) return;
+    const prevName = localStorage.getItem('soundName_' + slot.key);
+    if(sel.value === slot.key && prevName) return;      /* уже есть свой — просто выбрали его */
+    e.stopImmediatePropagation();
+    const prev = (state.notifPrefs && state.notifPrefs[slot.pref]) || 'chime';
+    const file = await pickFile();
+    if(!file){ sel.value = prevName ? slot.key : prev; return; }
+    try{
+      toast('Обрабатываю звук…');
+      const blob = await fileToSound(file, slot.max);
+      await idbPut(slot.key, blob); delete decoded[slot.key];
+      localStorage.setItem('soundName_' + slot.key, (file.name || 'звук').replace(/\.[^.]+$/, '').slice(0, 28));
+      sel.value = slot.key; tidy(sel);
+      state.notifPrefs[slot.pref] = slot.key;
+      try{ await db.collection('users').doc(state.currentUser.uid).update({[slot.pref]: slot.key}); }catch(_){}
+      playNotificationSound(slot.key, state.notifPrefs.notificationVolume);
+      toast('Свой звук для ' + slot.title + ' установлен');
+      syncNative(true);
+    }catch(err){
+      sel.value = prevName ? slot.key : prev;
+      toast('Не удалось взять звук из файла: ' + (err && err.message || 'формат не поддерживается'));
+    }
+  }, true);
+  new MutationObserver(()=>{ Object.keys(SLOTS).forEach(id=>{ const s = document.getElementById(id); if(s && !s.__tidy){ s.__tidy = 1; tidy(s); } else if(s) tidy(s); }); }).observe(document.body, {childList: true, subtree: true});
+
+  /* ---------- Android: тот же звук в системных уведомлениях ---------- */
+  const b64 = (blob)=> new Promise((res)=>{ const r = new FileReader(); r.onload = ()=> res(String(r.result).split(',')[1] || ''); r.readAsDataURL(blob); });
+  async function sendSound(kind, name){
+    const lastKey = 'nativeSound_' + kind;
+    const m = NOTIF_MELODIES[name] || NOTIF_MELODIES.chime;
+    let key = name, data = '';
+    if(m.system){ key = 'system'; }
+    else if(m.custom){
+      const blob = await idbGet(name); if(!blob) return;
+      key = name + '_' + blob.size;
+      if(localStorage.getItem(lastKey) === key) return;
+      data = await b64(blob);
+    } else {
+      key = name + '_v1';
+      if(localStorage.getItem(lastKey) === key) return;
+      const w = await melodyToWav(name); if(!w) return;
+      data = await b64(w);
+    }
+    if(localStorage.getItem(lastKey) === key) return;
+    try{ A.setChannelSound(kind, data, key, String(m.label || '').replace(/^\S+\s/, '')); localStorage.setItem(lastKey, key); }catch(e){}
+  }
+  async function syncNative(){
+    if(!A || !A.setChannelSound || !state.notifPrefs) return;
+    try{
+      await sendSound('msg', state.notifPrefs.notificationMelody || 'chime');
+      await sendSound('call', state.notifPrefs.ringtoneAudioMelody || 'classic_ring');
+    }catch(e){}
+  }
+  if(A){ setTimeout(syncNative, 6000); setInterval(syncNative, 8000); }
+  window.__sounds = {fileToSound, melodyToWav};
+})();
