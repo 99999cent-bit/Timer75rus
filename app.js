@@ -4401,18 +4401,44 @@ window.FX_EMO=[["Смайлики", "😀", ["😀", "😃", "😄", "😁", "�
   new MutationObserver(()=>{ if(it) return; it = setTimeout(()=>{ it = 0; inject(); }, 250); }).observe(document.body, {childList: true, subtree: true});
 })();
 
-/* ---------- 3. «Ответить» в уведомлении о звонке (Android-приложение) ---------- */
-(function nativeAnswer(){
+/* ---------- 3. «Ответить» / «Отклонить» в уведомлении о звонке (Android-приложение) ----------
+   Нажали «Ответить» — приложение само принимает звонок, без второго нажатия.
+   Если экран звонка ещё не успел появиться (приложение только открылось), берём звонок прямо из базы. */
+(function nativeCallButtons(){
+  const me = ()=> state.currentUser && state.currentUser.uid;
+  async function fetchRinging(cid){
+    try{
+      const d = await db.collection('calls').doc(cid).get();
+      const n = d.exists ? d.data() : null;
+      return n && n.status === 'ringing' && n.calleeUid === me() ? n : null;
+    }catch(e){ return null; }
+  }
   window.__nativeAnswerCall = (cid)=>{
-    const until = Date.now() + 20000;
-    const tick = ()=>{
+    const t0 = Date.now(); let fetched = false, accepted = false;
+    const tick = async ()=>{
+      if(accepted) return;
       try{
-        if(state.activeCallState === 'incoming' && (!cid || callId === cid) && typeof acceptIncomingCall === 'function'){ acceptIncomingCall(); return; }
+        if(state.activeCallState === 'incoming' && (!cid || callId === cid)){ accepted = true; acceptIncomingCall(); return; }
         if(state.activeCallState && state.activeCallState !== 'incoming') return;      /* уже в звонке */
+        if(!fetched && me() && typeof db !== 'undefined' && db && Date.now() - t0 > 1200){
+          fetched = true;
+          const n = await fetchRinging(cid);
+          if(n && !state.activeCallState && typeof showIncomingCall === 'function'){ showIncomingCall(cid, n); }
+          if(!n) fetched = Date.now() - t0 < 8000 ? false : true;           /* база ещё не готова — повторим */
+        }
       }catch(e){}
-      if(Date.now() < until) setTimeout(tick, 250);
+      if(Date.now() - t0 < 30000) setTimeout(tick, 250);
     };
     tick();
+  };
+  window.__nativeDeclineCall = async (cid)=>{
+    try{
+      if(state.activeCallState === 'incoming' && callId === cid && typeof declineIncomingCall === 'function'){ await declineIncomingCall(); return; }
+      if(!state.activeCallState && me()){
+        const n = await fetchRinging(cid);
+        if(n) await db.collection('calls').doc(cid).update({status: 'declined', endedAt: Date.now()});
+      }
+    }catch(e){}
   };
 })();
 
