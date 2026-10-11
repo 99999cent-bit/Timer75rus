@@ -4418,16 +4418,22 @@ window.FX_EMO=[["Смайлики", "😀", ["😀", "😃", "😄", "😁", "�
     const tick = async ()=>{
       if(accepted) return;
       try{
-        if(state.activeCallState === 'incoming' && (!cid || callId === cid)){ accepted = true; acceptIncomingCall(); return; }
+        if(state.activeCallState === 'incoming' && (!cid || callId === cid)){
+          accepted = true;
+          const key = (cid || callId) + ':' + (state.activeCallOtherUid || '');
+          if(window.__answeredCall === key && Date.now() - (window.__answeredAt || 0) < 30000) return;   /* уже принимаем */
+          window.__answeredCall = key; window.__answeredAt = Date.now();
+          acceptIncomingCall(); return;
+        }
         if(state.activeCallState && state.activeCallState !== 'incoming') return;      /* уже в звонке */
-        if(!fetched && me() && typeof db !== 'undefined' && db && Date.now() - t0 > 1200){
+        if(!fetched && me() && typeof db !== 'undefined' && db && (window.__callFastPath === cid || Date.now() - t0 > 1200)){
           fetched = true;
           const n = await fetchRinging(cid);
           if(n && !state.activeCallState && typeof showIncomingCall === 'function'){ showIncomingCall(cid, n); }
           if(!n) fetched = Date.now() - t0 < 8000 ? false : true;           /* база ещё не готова — повторим */
         }
       }catch(e){}
-      if(Date.now() - t0 < 30000) setTimeout(tick, 250);
+      if(Date.now() - t0 < 30000) setTimeout(tick, window.__callFastPath === cid ? 120 : 250);
     };
     tick();
   };
@@ -4458,4 +4464,57 @@ window.FX_EMO=[["Смайлики", "😀", ["😀", "😃", "😄", "😁", "�
   let t = 0;
   new MutationObserver(()=>{ if(t) return; t = setTimeout(()=>{ t = 0; inject(); }, 300); }).observe(document.body, {childList: true, subtree: true});
   document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState === 'visible'){ const r = document.getElementById('un-fsi'); try{ if(r && A.fullScreenCallsAllowed()) r.remove(); }catch(e){} } });
+})();
+
+/* ============================================================
+   ROUND 197 — звонок в первую очередь
+   Нажали «Ответить» в уведомлении, когда приложение было закрыто:
+   • звонок принимается сразу, как только приложение вошло в аккаунт —
+     не дожидаясь списка чатов, переписки и прочего;
+   • мелодия звонка второй раз не играет, музыка не включается сама
+     (плеер восстановится на паузе);
+   • всё остальное (смайлики, фото, музыка) грузится уже после звонка
+============================================================ */
+(function callFirst(){
+  let fast = '';
+  try{
+    const P = new URLSearchParams(location.search);
+    fast = P.get('answer') || '';
+    if(fast){
+      P.delete('answer');
+      const q = P.toString();
+      history.replaceState(history.state, '', location.pathname + (q ? '?' + q : '') + location.hash);
+    }
+  }catch(e){}
+  window.__callFastPath = fast;
+  const holdMusic = ()=>{
+    try{
+      const st = JSON.parse(localStorage.getItem('musicState') || 'null');
+      if(st && st.playing){ st.playing = false; localStorage.setItem('musicState', JSON.stringify(st)); }
+    }catch(e){}
+    try{ const a = document.getElementById('music-audio'); if(a && !a.paused) a.pause(); }catch(e){}
+  };
+  if(fast) holdMusic();
+  /* пока принимаем звонок из уведомления — мелодия входящего не играет */
+  if(typeof startIncomingRingtone === 'function'){
+    const o = startIncomingRingtone;
+    startIncomingRingtone = function(){
+      if(window.__callFastPath && (!callId || callId === window.__callFastPath)) return;
+      return o.apply(this, arguments);
+    };
+  }
+  /* «Ответить» из уведомления, когда приложение уже было в памяти — то же самое */
+  if(typeof window.__nativeAnswerCall === 'function'){
+    const o = window.__nativeAnswerCall;
+    window.__nativeAnswerCall = (cid)=>{
+      window.__callFastPath = cid || window.__callFastPath;
+      holdMusic();
+      setTimeout(()=>{ if(window.__callFastPath === cid) window.__callFastPath = ''; }, 30000);
+      return o(cid);
+    };
+  }
+  if(fast){
+    setTimeout(()=>{ if(window.__callFastPath === fast) window.__callFastPath = ''; }, 30000);
+    window.__nativeAnswerCall(fast);
+  }
 })();

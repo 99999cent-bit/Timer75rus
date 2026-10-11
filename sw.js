@@ -3,7 +3,7 @@
    • Библиотеки Firebase и каталоги музыки/радио кэшируются — не скачиваются каждый раз заново.
    • Показывает системные уведомления.
    Музыкальные потоки и данные Firestore идут напрямую (у Firestore свой кэш на устройстве). */
-const CACHE = 'chat-shell-v4';
+const CACHE = 'chat-shell-v5';
 const DATA = 'chat-data-v1';
 const MEDIA = 'chat-media-v1';   /* смайлики, стикеры, фото из чатов — один раз скачали, дальше без интернета */
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
@@ -75,6 +75,30 @@ self.addEventListener('fetch', (event)=>{
     return;
   }
   if(url.origin === self.location.origin){
+    /* приложение открывается мгновенно и без сети: страница, скрипт и стили — из телефона,
+       а свежая версия скачивается в фоне и будет при следующем запуске */
+    const nav = req.mode === 'navigate';
+    const shell = nav || /\.(js|css|webmanifest|png|svg|ico)$/.test(url.pathname) || url.pathname.endsWith('/');
+    if(shell && !url.pathname.endsWith('/sw.js') && !url.pathname.endsWith('firebase-messaging-sw.js')){
+      event.respondWith((async ()=>{
+        const c = await caches.open(CACHE);
+        const hit = nav ? (await c.match(req, {ignoreSearch: true}) || await c.match('./index.html') || await c.match('./')) : await c.match(req);
+        const fresh = fetch(req, {cache: 'no-cache'}).then((res)=>{
+          if(res && res.ok){
+            const copy = res.clone();
+            c.put(nav ? './index.html' : req, copy).then(async ()=>{
+              /* старые версии того же файла (app.js?v=…) — удалить */
+              if(nav || !url.search) return;
+              for(const k of await c.keys()){ const u = new URL(k.url); if(u.pathname === url.pathname && u.search !== url.search) c.delete(k); }
+            }).catch(()=>{});
+          }
+          return res;
+        });
+        if(hit){ event.waitUntil(fresh.catch(()=>{})); return hit; }
+        try{ return await fresh; }catch(e){ return (await c.match('./index.html')) || Response.error(); }
+      })());
+      return;
+    }
     event.respondWith(
       fetch(req).then(res=>{ if(res.ok){ const copy = res.clone(); caches.open(CACHE).then(c=> c.put(req, copy)); } return res; })
         .catch(()=> caches.match(req).then(hit=> hit || caches.match('./index.html')))
