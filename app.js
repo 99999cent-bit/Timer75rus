@@ -4415,3 +4415,21 @@ window.FX_EMO=[["Смайлики", "😀", ["😀", "😃", "😄", "😁", "�
     tick();
   };
 })();
+
+/* ---------- 4. Android 14+: «звонки на весь экран» — кнопка в «Оповещениях» ---------- */
+(function fullScreenCallsRow(){
+  const A = window.AndroidApp;
+  if(!(A && A.isNative && typeof A.fullScreenCallsAllowed === 'function')) return;
+  function inject(){
+    const box = document.getElementById('un-box'); if(!box || document.getElementById('un-fsi')) return;
+    let ok = true; try{ ok = A.fullScreenCallsAllowed(); }catch(e){}
+    if(ok) return;
+    const r = document.createElement('div'); r.className = 'settings-row'; r.id = 'un-fsi'; r.style.cssText = 'width:100%;';
+    r.innerHTML = '<div style="flex:1"><div class="settings-row-title">📞 Звонки на весь экран</div><div class="settings-row-sub">Без этого окно звонка с кнопками «Ответить»/«Отклонить» быстро прячется и не видно на заблокированном экране</div></div><button type="button" class="btn-secondary" style="padding:8px 14px;border-radius:12px;font-weight:700">Разрешить</button>';
+    r.querySelector('button').onclick = ()=>{ try{ A.requestFullScreenCalls(); }catch(e){} };
+    box.appendChild(r);
+  }
+  let t = 0;
+  new MutationObserver(()=>{ if(t) return; t = setTimeout(()=>{ t = 0; inject(); }, 300); }).observe(document.body, {childList: true, subtree: true});
+  document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState === 'visible'){ const r = document.getElementById('un-fsi'); try{ if(r && A.fullScreenCallsAllowed()) r.remove(); }catch(e){} } });
+})();
