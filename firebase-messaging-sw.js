@@ -39,7 +39,7 @@ try {
     if (p && p.notification) return;           /* такое Firebase покажет сам */
     const d = (p && p.data) || {};
     /* фото справа: аватарка, которую приложение заранее сохранило на телефоне */
-    const saved = (d.chatId && await avatarFromPhone('chat-' + d.chatId)) || (d.from && await avatarFromPhone(d.from)) || '';
+    const saved = (d.chatId && await avatarFromPhone('chat-' + d.chatId)) || ((d.sender || d.uid) && await avatarFromPhone(d.sender || d.uid)) || '';
     const icon = saved || (/^https:\/\//.test(d.icon || '') ? d.icon : APP_BASE + 'icon-192.png');
     return self.registration.showNotification(d.title || 'Новое сообщение', {
       body: d.body || '',
@@ -50,7 +50,7 @@ try {
       vibrate: [180, 80, 180],
       timestamp: Date.now(),
       lang: 'ru',
-      data: { chatId: d.chatId || '', from: d.from || '', type: d.type || '' }
+      data: { chatId: d.chatId || '', sender: d.sender || '', type: d.type || '' }
     });
   });
 } catch (e) {}

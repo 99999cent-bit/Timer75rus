@@ -2787,7 +2787,7 @@ window.NOTO_ANIM_GROUPS=[{"name":"Смайлики","list":"😀|😃|😄|😁|
 (function fullScreenMode(){
   const KEY = 'fsMode';
   const standalone = ()=>{ try{ return matchMedia('(display-mode: standalone)').matches || matchMedia('(display-mode: fullscreen)').matches; }catch(e){ return false; } };
-  const on = ()=>{ try{ return localStorage.getItem(KEY) === '1'; }catch(e){ return false; } };
+  const on = ()=>{ try{ return localStorage.getItem(KEY) !== '0'; }catch(e){ return true; } };   /* по умолчанию включено */
   const go = ()=>{
     if(!on() || document.fullscreenElement || !document.documentElement.requestFullscreen) return;
     document.documentElement.requestFullscreen({navigationUI: 'hide'}).catch(()=>{});
