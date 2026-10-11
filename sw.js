@@ -57,10 +57,14 @@ self.addEventListener('fetch', (event)=>{
      || (url.hostname === 'firebasestorage.googleapis.com' && !/\.(mp4|webm|mov|m4a|mp3|ogg|wav)(\?|$)/i.test(url.pathname))){
     event.respondWith(caches.open(MEDIA).then(async (c)=>{
       const hit = await c.match(req, {ignoreVary: true});
-      if(hit) return hit;
-      const res = await fetch(req);
-      if(res && (res.ok || res.type === 'opaque')) c.put(req, res.clone()).then(trimMedia).catch(()=>{});
-      return res;
+      /* «закрытая» копия (от обычной картинки) не годится для живых смайликов, которые раскладываются на кадры — берём из сети и заменяем */
+      const usable = hit && !(hit.type === 'opaque' && req.mode === 'cors');
+      if(usable) return hit;
+      try{
+        const res = await fetch(req);
+        if(res && (res.ok || (res.type === 'opaque' && !hit))) c.put(req, res.clone()).then(trimMedia).catch(()=>{});
+        return res;
+      }catch(e){ if(hit && req.mode !== 'cors') return hit; throw e; }
     }));
     return;
   }

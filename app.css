@@ -262,3 +262,12 @@
 .lsm-prow button.on{box-shadow:0 0 0 3px var(--accent);}
 .lsm-card{display:flex;flex-direction:column;gap:8px;}
 .lsm-card > *{flex-shrink:0;}
+
+/* ===== ROUND 195: свой живой стикер в чате не «разъезжается»; движение и при «Убрать анимацию» ===== */
+.msg-row.sticker-msg .bubble .ast,.ast{position:relative!important;height:auto!important;aspect-ratio:1/1;overflow:visible;}
+.msg-row.sticker-msg .bubble .ast{width:min(200px,50vw)!important;max-width:min(200px,50vw)!important;}
+.msg-row .bubble .ast > img.ast-l,.ast > img.ast-l{position:absolute!important;max-width:none!important;max-height:none!important;min-width:0!important;min-height:0!important;object-fit:fill!important;border-radius:0!important;margin:0!important;padding:0!important;background:none!important;box-shadow:none!important;}
+/* на телефоне включено «Убрать анимацию» — живые смайлики и стикеры всё равно двигаются (это их содержимое) */
+@media (prefers-reduced-motion:reduce){
+  img.mv-on[class*="mv-"],.ast[class*=" am-"],.ast > img.ast-l[class*=" am-"]{animation-iteration-count:infinite!important;}
+}

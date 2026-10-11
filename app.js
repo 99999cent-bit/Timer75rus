@@ -2349,7 +2349,11 @@ window.NOTO_ANIM_GROUPS=[{"name":"Смайлики","list":"😀|😃|😄|😁|
   const WSRC = `self.onmessage = async (ev)=>{
     const {id, url, size, maxFrames} = ev.data;
     try{
-      const r = await fetch(url); if(!r.ok) throw new Error('http ' + r.status);
+      let r = null;
+      try{ r = await fetch(url, {mode: 'cors'}); }catch(e){ r = null; }
+      /* в памяти телефона могла лежать «закрытая» копия картинки — тогда берём заново из сети */
+      if((!r || !r.ok) && /^https?:/.test(url)) r = await fetch(url + (url.indexOf('?') < 0 ? '?' : '&') + 'cors=1', {mode: 'cors', cache: 'reload'});
+      if(!r.ok) throw new Error('http ' + r.status);
       const type = (r.headers.get('content-type') || 'image/webp').split(';')[0];
       const buf = await r.arrayBuffer();
       const dec = new ImageDecoder({data: buf, type: /image\\//.test(type) ? type : 'image/webp'});
@@ -2497,7 +2501,9 @@ window.NOTO_ANIM_GROUPS=[{"name":"Смайлики","list":"😀|😃|😄|😁|
       const im = document.createElement('img');
       im.src = L.src; im.alt = ''; im.draggable = false;
       im.className = 'ast-l' + (L.m && L.m !== 'none' ? ' am-' + L.m : '');
-      Object.assign(im.style, {left: (L.x / s * 100) + '%', top: (L.y / s * 100) + '%', width: (L.w / s * 100) + '%', height: (L.h / s * 100) + '%', animationDuration: ((DUR[L.m] || 1.6) / (L.sp || 1)).toFixed(2) + 's'});
+      /* !important — чтобы общие правила для картинок в сообщениях (160×160) не растягивали части */
+      [['left', L.x], ['top', L.y], ['width', L.w], ['height', L.h]].forEach(([k, v])=> im.style.setProperty(k, (v / s * 100) + '%', 'important'));
+      im.style.animationDuration = ((DUR[L.m] || 1.6) / (L.sp || 1)).toFixed(2) + 's';
       if(L.o) im.style.transformOrigin = L.o;
       box.appendChild(im);
     });
@@ -4210,4 +4216,30 @@ window.__AM_ORIGIN = {wave: '50% 100%', talk: '50% 15%', nod: '50% 95%', jelly: 
     if(t) return;
     t = setTimeout(()=>{ t = 0; document.querySelectorAll('#emoji-panel img[class*="mv-"]:not([data-mvo])').forEach((i)=>{ i.dataset.mvo = '1'; io.observe(i); }); }, 200);
   }).observe(document.body, {childList: true, subtree: true});
+})();
+
+/* ============================================================
+   ROUND 195
+   • свой живой мемоджи в чате показывается целиком, в рамке
+     стикера (раньше части растягивались до 160 px каждая);
+   • живые смайлики в окне смайликов двигаются все, а не только
+     «Недавние»: если смайлик не удалось разложить на кадры, сразу
+     играет обычная живая картинка
+============================================================ */
+(function panelLiveFallback(){
+  if(!window.LiveAnim || !LiveAnim.attach || LiveAnim.__fb) return;
+  const prev = LiveAnim.attach;
+  const native = (img, e)=>{
+    try{
+      if(!img || !img.isConnected || !LiveAnim.hasAnim(e)) return;
+      const u = window.animEmojiUrl && animEmojiUrl(e);
+      if(u && img.src !== u){ img.dataset.live = 'on'; img.src = u; }
+    }catch(er){}
+  };
+  LiveAnim.attach = function(img, e, size){
+    const p = prev.call(this, img, e, size);
+    Promise.resolve(p).then((ok)=>{ if(!ok) native(img, e); }, ()=> native(img, e));
+    return p;
+  };
+  LiveAnim.__fb = true;
 })();
