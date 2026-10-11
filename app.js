@@ -2075,7 +2075,19 @@ window.EMO_GROUPS=[{"id": "smileys", "name": "Смайлики", "icon": "😀",
       pre.src = u;
     }
   }
-  function wantLive(img){ if(!animOn() || img.dataset.live) return; img.dataset.live = 'want'; q.push(img); pump(); }
+  function wantLive(img){
+    if(!animOn() || img.dataset.live) return;
+    const e = img.dataset.e;
+    if(window.LiveAnim && LiveAnim.ok){
+      img.dataset.live = 'la';
+      if(!LiveAnim.hasAnim(e)) return;
+      const size = img.closest('.s2-cell') ? 160 : 96;
+      LiveAnim.attach(img, e, size);
+      return;
+    }
+    if(window.LiveAnim && !LiveAnim.hasAnim(e)){ img.dataset.live = 'no'; return; }
+    img.dataset.live = 'want'; q.push(img); pump();
+  }
   /* ленивые картинки внутри прокрутки */
   const ios = new WeakMap();
   function lazy(root){
@@ -2086,17 +2098,18 @@ window.EMO_GROUPS=[{"id": "smileys", "name": "Смайлики", "icon": "😀",
           if(!en.isIntersecting) return;
           const img = en.target;
           if(img.dataset.src){ img.src = img.dataset.src; img.removeAttribute('data-src'); }
-          if(img.dataset.lv === '1') setTimeout(()=>{ if(img.isConnected) wantLive(img); }, 180);
+          if(img.dataset.lv === '1') wantLive(img);
           if(!img.dataset.lv) io.unobserve(img);
         });
       }, {root, rootMargin: '220px 0px'});
       ios.set(root, io);
     }
     root.querySelectorAll('img[data-src], img[data-lv="1"]').forEach((i)=> io.observe(i));
+    try{ window.__mvObserve && __mvObserve(root); }catch(e){}
   }
   const fallbackText = (img)=>{ img.onerror = null; const s = document.createElement('span'); s.className = 'e3-fb'; s.textContent = img.alt || img.dataset.e || ''; img.replaceWith(s); };
   document.addEventListener('error', (ev)=>{ const t = ev.target; if(t && t.tagName === 'IMG' && t.classList && t.classList.contains('e3')){ if(t.dataset.live === 'on' && t.dataset.e){ t.src = F(t.dataset.e); t.dataset.live = 'no'; } else fallbackText(t); } }, true);
-  const cell = (e, attr, live, cls)=> `<button type="button" class="${cls || 'e3-cell'}" ${attr}="${H(e)}"><img class="e3" alt="${H(e)}" data-e="${H(e)}" data-src="${F(e)}"${live ? ' data-lv="1"' : ''} draggable="false"></button>`;
+  const cell = (e, attr, live, cls, mv)=> `<button type="button" class="${cls || 'e3-cell'}" ${attr}="${H(e)}"${mv ? ` data-mvk="${mv}"` : ''}><img class="e3${mv ? ' mv-' + mv : ''}" alt="${H(e)}" data-e="${H(e)}" data-src="${F(e)}"${live ? ' data-lv="1"' : ''}${mv ? ' data-mv="1"' : ''} draggable="false"></button>`;
 
   /* ---------- 1. реакции при удержании ---------- */
   const QUICK = ['👍', '❤️', '😂', '🔥', '😭', '😍', '👌'];
@@ -2130,7 +2143,7 @@ window.EMO_GROUPS=[{"id": "smileys", "name": "Смайлики", "icon": "😀",
     const top = Math.max(12, Math.min(r.top, innerHeight - H0 - 16));
     document.querySelectorAll('.qr2-panel').forEach((x)=> x.remove());
     const pn = document.createElement('div'); pn.className = 'qr2-panel';
-    pn.innerHTML = `<div class="qr2-card" style="top:${top}px;height:${H0}px"><div class="qr2-grid">${REACT_MORE().map((e)=> `<button type="button" class="qr2g ${mine.has(e) ? 'mine' : ''}" data-qr2="${H(e)}"><img class="e3" alt="${H(e)}" data-e="${H(e)}" data-src="${F(e)}" draggable="false"></button>`).join('')}</div></div>`;
+    pn.innerHTML = `<div class="qr2-card" style="top:${top}px;height:${H0}px"><div class="qr2-grid">${REACT_MORE().map((e)=> `<button type="button" class="qr2g ${mine.has(e) ? 'mine' : ''}" data-qr2="${H(e)}"><img class="e3" alt="${H(e)}" data-e="${H(e)}" data-src="${F(e)}" data-lv="1" draggable="false"></button>`).join('')}</div></div>`;
     document.body.appendChild(pn);
     box.style.visibility = 'hidden';
     requestAnimationFrame(()=> pn.classList.add('on'));
@@ -2193,16 +2206,16 @@ window.EMO_GROUPS=[{"id": "smileys", "name": "Смайлики", "icon": "😀",
     if(mode === 'live'){
       const rec = getRecent('emoRecentLive');
       return (rec.length ? [{id: 'recent', name: 'Недавние', icon: '🕘', html: rec.map((e)=> cell(e, 'data-ep-e', true)).join('')}] : [])
-        .concat(LIVE_SECS().map((s)=> ({id: s.id, name: s.name, icon: s.icon, html: s.arr.map((e)=> cell(e, 'data-ep-e', true)).join('')})));
+        .concat((window.LIVE_STICKER_GROUPS && LIVE_STICKER_GROUPS.length ? LIVE_STICKER_GROUPS.map((g)=> ({id: g.id, name: g.name.replace(/ — живые$/, ''), icon: g.icon, arr: g.arr})) : LIVE_SECS()).map((s)=> ({id: s.id, name: s.name, icon: s.icon, html: s.arr.map((e)=> cell(e, 'data-ep-e', true)).join('')})));
     }
     /* стикеры */
     const prefs = window.chatPrefs || {}, mine = Array.isArray(prefs.stickers) ? prefs.stickers : [];
     const secs = [];
     const rec = getRecent('stk2Recent');
-    if(rec.length) secs.push({id: 'recent', name: 'Недавние', icon: '🕘', html: rec.map((r)=> r.k === 'f' ? cell(r.e, 'data-stk3d', false, 's2-cell') : r.k === 'n' ? cell(r.e, 'data-stk-noto', true, 's2-cell') : (mine.some((m)=> m.id === r.id) ? `<button type="button" class="s2-cell" data-stk-mine="${H(r.id)}"><img class="e3 s2-mine" data-s2load="${H(r.id)}" alt=""></button>` : '')).join('')});
-    secs.push({id: 'mine', name: 'Мои стикеры', icon: '⭐', html: '<button type="button" class="s2-cell s2-add" data-stk-new>＋<small>Создать</small></button>' + mine.slice().reverse().map((m)=> `<button type="button" class="s2-cell" data-stk-mine="${H(m.id)}"><img class="e3 s2-mine" data-s2load="${H(m.id)}" alt="${H(m.e || '')}"></button>`).join('')});
-    (window.STICKER_PACKS || []).forEach((p)=> secs.push({id: 'n-' + p.id, name: '✨ ' + p.name.replace(/^\S+\s/, '') + ' — живые', icon: (p.name.split(' ')[0] || '✨'), html: p.list.map((e)=> cell(e, 'data-stk-noto', true, 's2-cell')).join('')}));
-    EMO_GROUPS.filter((g)=> g.id !== 'flags').forEach((g)=> secs.push({id: 'f-' + g.id, name: g.name + ' 3D', icon: g.icon, html: g.arr.map((e)=> cell(e, 'data-stk3d', false, 's2-cell')).join('')}));
+    if(rec.length) secs.push({id: 'recent', name: 'Недавние', icon: '🕘', html: rec.map((r)=> r.k === 'f' ? cell(r.e, 'data-stk3d', false, 's2-cell', r.mv || 'bounce') : r.k === 'n' ? cell(r.e, 'data-stk-noto', true, 's2-cell') : (mine.some((m)=> m.id === r.id) ? `<button type="button" class="s2-cell" data-stk-mine="${H(r.id)}"><img class="e3 s2-mine" data-s2load="${H(r.id)}" alt=""></button>` : '')).join('')});
+    secs.push({id: 'mine', name: 'Мои стикеры', icon: '⭐', html: '<button type="button" class="s2-cell s2-add" data-stk-new>＋<small>Из фото</small></button><button type="button" class="s2-cell s2-add s2-draw" data-stk-draw>🎨<small>Нарисовать живой</small></button>' + mine.slice().reverse().map((m)=> /json/.test(m.mime || '') ? `<button type="button" class="s2-cell" data-stk-anim="${H(m.id)}"><div class="ast s2-anim" data-s2anim="${H(m.id)}"></div></button>` : `<button type="button" class="s2-cell" data-stk-mine="${H(m.id)}"><img class="e3 s2-mine" data-s2load="${H(m.id)}" alt="${H(m.e || '')}"></button>`).join('')});
+    (window.LIVE_STICKER_GROUPS || []).forEach((g)=> secs.push({id: 's-' + g.id, name: '✨ ' + g.name, icon: g.icon, html: g.arr.map((e)=> cell(e, 'data-stk-noto', true, 's2-cell')).join('')}));
+    EMO_GROUPS.filter((g)=> g.id !== 'flags').forEach((g)=> secs.push({id: 'f-' + g.id, name: g.name + ' 3D — двигаются', icon: g.icon, html: g.arr.map((e)=> cell(e, 'data-stk3d', false, 's2-cell', (window.STK_MOTION || {})[g.id] || 'bounce')).join('')}));
     return secs;
   }
   function build(grid, mode){
@@ -2215,6 +2228,10 @@ window.EMO_GROUPS=[{"id": "smileys", "name": "Смайлики", "icon": "😀",
     grid.querySelectorAll('img[data-s2load]').forEach((img)=>{
       const s = ((window.chatPrefs || {}).stickers || []).find((m)=> m.id === img.dataset.s2load);
       if(s && window.__stickerData) __stickerData(s).then((u)=>{ if(u) img.src = u; }).catch(()=>{});
+    });
+    grid.querySelectorAll('[data-s2anim]').forEach((d)=>{
+      const s = ((window.chatPrefs || {}).stickers || []).find((m)=> m.id === d.dataset.s2anim);
+      if(s && window.__stickerData) __stickerData(s).then((u)=>{ const a = window.__animFromData && __animFromData(u); if(a && window.__paintAnimSticker){ __paintAnimSticker(d, a); d.classList.add('s2-anim'); } }).catch(()=>{});
     });
     /* вернуть место прокрутки */
     if(scrollMem[mode]) requestAnimationFrame(()=>{ sc.scrollTop = scrollMem[mode]; syncCat(grid); });
@@ -2240,11 +2257,11 @@ window.EMO_GROUPS=[{"id": "smileys", "name": "Смайлики", "icon": "😀",
     try{ updateSendBtnVisibility(); }catch(er){}
     try{ inp.dispatchEvent(new Event('input', {bubbles: true})); }catch(er){}
   }
-  async function send3d(e){
+  async function send3d(e, mv){
     const chat = state.activeChatId; if(!chat) return;
     const panel = document.getElementById('emoji-panel'); if(panel) panel.style.display = 'none';
-    pushRecent('stk2Recent', {k: 'f', e}, 24);
-    try{ await sendMessage(chat, 'image', F(e), null, {sticker: true, stickerEmoji: e, fluent: true}); haptic('buttons', 8); }catch(er){ toast('Стикер не отправился'); return; }
+    pushRecent('stk2Recent', {k: 'f', e, mv: mv || 'bounce'}, 24);
+    try{ await sendMessage(chat, 'image', F(e), null, {sticker: true, stickerEmoji: e, fluent: true, motion: mv || 'bounce'}); haptic('buttons', 8); }catch(er){ toast('Стикер не отправился'); return; }
     try{ db.collection('chats').doc(chat).set({lastMessage: '🎭 Стикер'}, {merge: true}); }catch(er){}
   }
   const ORIG = renderEmojiPanelGrid;
@@ -2277,7 +2294,10 @@ window.EMO_GROUPS=[{"id": "smileys", "name": "Смайлики", "icon": "😀",
         return;
       }
       const s3 = ev.target.closest('[data-stk3d]');
-      if(s3){ ev.stopPropagation(); send3d(s3.dataset.stk3d); return; }
+      if(s3){ ev.stopPropagation(); send3d(s3.dataset.stk3d, s3.dataset.mvk); return; }
+      if(ev.target.closest('[data-stk-draw]')){ ev.stopPropagation(); window.openLiveStickerMaker && openLiveStickerMaker(()=>{ try{ renderEmojiPanelGrid(); }catch(er){} }); return; }
+      const sa = ev.target.closest('[data-stk-anim]');
+      if(sa){ ev.stopPropagation(); window.sendAnimSticker && sendAnimSticker(sa.dataset.stkAnim); return; }
       const sn = ev.target.closest('[data-stk-noto]');
       if(sn) pushRecent('stk2Recent', {k: 'n', e: sn.dataset.stkNoto}, 24);
       const sm = ev.target.closest('[data-stk-mine]');
@@ -2292,4 +2312,336 @@ window.EMO_GROUPS=[{"id": "smileys", "name": "Смайлики", "icon": "😀",
   const eb = document.getElementById('emoji-btn');
   if(eb) eb.addEventListener('click', ()=> setTimeout(()=>{ const p = document.getElementById('emoji-panel'); if(p && p.style.display !== 'none'){ const g = document.getElementById('emoji-panel-grid'); if(g && !g.querySelector('.ep2-scroll') && ['normal', 'live', 'stickers'].includes(emojiPanelTab)) renderEmojiPanelGrid(); else if(g) lazy(g.querySelector('.ep2-scroll') || g); } }, 30));
   setTimeout(()=>{ try{ renderEmojiPanelGrid(); }catch(e){} }, 300);
+})();
+window.NOTO_ANIM=["1f600","1f603","1f604","1f601","1f606","1f605","1f602","1f923","1f62d","1f609","1f617","1f619","1f61a","1f618","1f970","1f60d","1f929","1f973","1fae0","1f643","1f642","1f972","1f979","1f60a","263a_fe0f","1f60c","1f60f","1f924","1f60b","1f61b","1f61d","1f61c","1f92a","1f974","1f614","1f97a","1f62c","1f611","1f610","1f636","1f636_200d_1f32b_fe0f","1fae5","1f910","1fae1","1f914","1f92b","1fae2","1f92d","1f971","1f917","1fae3","1f631","1f928","1f9d0","1f612","1f644","1f62e_200d_1f4a8","1f624","1f620","1f621","1f92c","1f61e","1f613","1f61f","1f625","1f622","2639_fe0f","1f641","1fae4","1f615","1f630","1f628","1f627","1f626","1f62e","1f62f","1f632","1f633","1f92f","1f616","1f623","1f629","1f62b","1f635","1f635_200d_1f4ab","1fae8","1f976","1f975","1f922","1f92e","1f634","1f62a","1f927","1f912","1f915","1f637","1f925","1f607","1f920","1f911","1f913","1f60e","1f978","1f921","1f608","1f47f","1f47b","1f480","1f383","1f4a9","1f916","1f47d","1f31e","1f31b","1f31c","1f648","1f649","1f64a","1f63a","1f638","1f639","1f63b","1f63c","1f63d","1f640","1f63f","1f63e","1f31f","2728","1f4a5","1f525","1f4af","1f389","2764_fe0f","1f9e1","1f49b","1f49a","1fa75","1f499","1f49c","1f90e","1f5a4","1fa76","1f90d","1fa77","1f498","1f49d","1f496","1f497","1f493","1f49e","1f495","1f48c","1f49f","2763_fe0f","2764_fe0f_200d_1fa79","1f494","2764_fe0f_200d_1f525","1f48b","1f463","1fac0","1fa78","1f9a0","1f440","1f441_fe0f","1fae6","1f9bf","1f9be","1f4aa","1f44f","1f44d","1f44e","1f64c","1f44b","270c_fe0f","1f91e","261d_fe0f","1f64f","1f483","1f339","1f940","1f342","1f331","1f343","1f340","2744_fe0f","1f30b","1f305","1f304","1f308","1fae7","1f30a","1f32c_fe0f","1f32a_fe0f","26a1","1f4a7","1f327_fe0f","1f329_fe0f","1f4ab","2604_fe0f","1f30d","1f30e","1f30f","1f42e","1f984","1f98e","1f409","1f996","1f995","1f422","1f40a","1f40d","1f438","1f407","1f400","1f429","1f415","1f9ae","1f415_200d_1f9ba","1f416","1f40e","1facf","1f402","1f410","1f998","1f405","1f412","1f98d","1f9a7","1f43f_fe0f","1f9a6","1f987","1f426","1f426_200d_2b1b","1f413","1f423","1f424","1f425","1f985","1f54a_fe0f","1fabf","1f99a","1f9ad","1f988","1f42c","1f433","1f421","1f980","1f419","1fabc","1f577_fe0f","1f40c","1f41c","1f99f","1fab3","1fab0","1f41d","1f41e","1f98b","1f41b","1fab1","1f43e","1f345","1f373","1f35d","1f35c","1f37f","2615","1f37b","1f942","1f37e","1f377","1f379","1f6a7","1f6a8","1f6b2","1f6f8","1f680","1f6eb","1f6ec","1f3a2","1f3d5_fe0f","1f38a","1f388","1f382","1f381","1f386","1fa85","1faa9","26bd","26be","1f94e","1f3be","1f3f8","1f94d","1f3cf","1f3d1","1f3d2","1f3af","1f94f","1fa83","1fa81","1f3d3","1f3b3","1f3b2","1f3b0","1f4f8","1f3bb","1f941","1fa87","1f50b","1faab","1f4b8","2696_fe0f","1f4a1","1f393","2602_fe0f","1f48e","2699_fe0f","270f_fe0f","23f0","1f6ce_fe0f","1f514","1f52e","2648","2649","264a","264b","264c","264d","264e","264f","2650","2651","2652","2653","26ce","2757","2753","2049_fe0f","203c_fe0f","274c","1f198","1f4f4","2705","1f195","1f193","1f199","1f192","1f6ae","1f3b6","2795","1f3c1","1f6a9","1f3f4","1f3f3_fe0f"];
+window.NOTO_ANIM_GROUPS=[{"name":"Смайлики","list":"😀|😃|😄|😁|😆|😅|😂|🤣|😭|😉|😗|😙|😚|😘|🥰|😍|🤩|🥳|🫠|🙃|🙂|🥲|🥹|😊|☺️|😌|😏|🤤|😋|😛|😝|😜|🤪|🥴|😔|🥺|😬|😑|😐|😶|😶‍🌫️|🫥|🤐|🫡|🤔|🤫|🫢|🤭|🥱|🤗|🫣|😱|🤨|🧐|😒|🙄|😮‍💨|😤|😠|😡|🤬|😞|😓|😟|😥|😢|☹️|🙁|🫤|😕|😰|😨|😧|😦|😮|😯|😲|😳|🤯|😖|😣|😩|😫|😵|😵‍💫|🫨|🥶|🥵|🤢|🤮|😴|😪|🤧|🤒|🤕|😷|🤥|😇|🤠|🤑|🤓|😎|🥸|🤡|😈|👿|👻|💀|🎃|💩|🤖|👽|🌞|🌛|🌜|🙈|🙉|🙊|😺|😸|😹|😻|😼|😽|🙀|😿|😾|🌟|✨|💥|🔥|💯|🎉|❤️|🧡|💛|💚|🩵|💙|💜|🤎|🖤|🩶|🤍|🩷|💘|💝|💖|💗|💓|💞|💕|💌|💟|❣️|❤️‍🩹|💔|❤️‍🔥|💋|👣|🫀|🩸|🦠|👀|👁️|🫦|🦿|🦾|💪|👏|👍|👎|🙌|👋|✌️|🤞|☝️|🙏"},{"name":"Люди","list":"💃"},{"name":"Животные и природа","list":"🌹|🥀|🍂|🌱|🍃|🍀|❄️|🌋|🌅|🌄|🌈|🫧|🌊|🌬️|🌪️|⚡|💧|🌧️|🌩️|💫|☄️|🌍|🌎|🌏|🐮|🦄|🦎|🐉|🦖|🦕|🐢|🐊|🐍|🐸|🐇|🐀|🐩|🐕|🦮|🐕‍🦺|🐖|🐎|🫏|🐂|🐐|🦘|🐅|🐒|🦍|🦧|🐿️|🦦|🦇|🐦|🐦‍⬛|🐓|🐣|🐤|🐥|🦅|🕊️|🪿|🦚|🦭|🦈|🐬|🐳|🐡|🦀|🐙|🪼|🕷️|🐌|🐜|🦟|🪳|🪰|🐝|🐞|🦋|🐛|🪱|🐾"},{"name":"Еда","list":"🍅|🍳|🍝|🍜|🍿|☕|🍻|🥂|🍾|🍷|🍹"},{"name":"Путешествия и небо","list":"🚧|🚨|🚲|🛸|🚀|🛫|🛬|🎢|🏕️"},{"name":"Праздник","list":"🎊|🎈|🎂|🎁|🎆|🪅|🪩|⚽|⚾|🥎|🎾|🏸|🥍|🏏|🏑|🏒|🎯|🥏|🪃|🪁|🏓|🎳|🎲|🎰|📸|🎻|🥁|🪇"},{"name":"Предметы","list":"🔋|🪫|💸|⚖️|💡|🎓|☂️|💎|⚙️|✏️|⏰|🛎️|🔔|🔮"},{"name":"Символы","list":"♈|♉|♊|♋|♌|♍|♎|♏|♐|♑|♒|♓|⛎|❗|❓|⁉️|‼️|❌|🆘|📴|✅|🆕|🆓|🆙|🆒|🚮|🎶|➕"},{"name":"Флаги","list":"🏁|🚩|🏴|🏳️"}];
+
+/* ============================================================
+   ROUND 185 — живые смайлики и стикеры без подвисаний
+   Почему в МАКСе/Telegram не подвисает: анимации там маленькие,
+   кадры заранее разложены и хранятся в телефоне, а играют только
+   те, что видны на экране. Делаем так же:
+   • анимация скачивается один раз, в фоновом потоке раскладывается
+     на маленькие кадры (без нагрузки на экран) и сохраняется в
+     телефоне (IndexedDB «liveSprites») — в следующий раз мгновенно,
+     без интернета;
+   • все видимые смайлики рисуются одним общим таймером — дёшево;
+     невидимые не играют и освобождают память;
+   • живые наборы стикеров: ~350 анимированных + все объёмные
+     3D-стикеры двигаются (прыгают, машут, качаются…);
+   • свой живой стикер: нарисовать по частям и выбрать, какая часть
+     как двигается
+============================================================ */
+(function liveAnimEngine(){
+  const ok = typeof ImageDecoder !== 'undefined' && typeof OffscreenCanvas !== 'undefined' && typeof createImageBitmap === 'function' && typeof Worker !== 'undefined';
+  const NOTO = new Set(window.NOTO_ANIM || []);
+  const codeOf = (e)=> Array.from(String(e)).map((c)=> c.codePointAt(0).toString(16)).join('_');
+  const hasAnim = (e)=>{ const c = codeOf(e); return NOTO.has(c) || NOTO.has(c.replace(/_fe0f/g, '')) || NOTO.has(c + '_fe0f'); };
+  const animCode = (e)=>{ const c = codeOf(e); if(NOTO.has(c)) return c; const c2 = c.replace(/_fe0f/g, ''); if(NOTO.has(c2)) return c2; if(NOTO.has(c + '_fe0f')) return c + '_fe0f'; return c; };
+  const NET = 'https://fonts.gstatic.com/s/e/notoemoji/latest/';
+  /* ---------- фоновые потоки: скачать и разложить на кадры ---------- */
+  const WSRC = `self.onmessage = async (ev)=>{
+    const {id, url, size, maxFrames} = ev.data;
+    try{
+      const r = await fetch(url); if(!r.ok) throw new Error('http ' + r.status);
+      const type = (r.headers.get('content-type') || 'image/webp').split(';')[0];
+      const buf = await r.arrayBuffer();
+      const dec = new ImageDecoder({data: buf, type: /image\\//.test(type) ? type : 'image/webp'});
+      await dec.tracks.ready;
+      const tr = dec.tracks.selectedTrack; const n = Math.max(1, tr.frameCount || 1);
+      const step = Math.max(1, Math.ceil(n / maxFrames)); const frames = Math.ceil(n / step);
+      const cols = Math.ceil(Math.sqrt(frames)), rows = Math.ceil(frames / cols);
+      const oc = new OffscreenCanvas(cols * size, rows * size), g = oc.getContext('2d');
+      g.imageSmoothingQuality = 'high';
+      let total = 0;
+      for(let i = 0, k = 0; i < n; i += step, k++){
+        const res = await dec.decode({frameIndex: i}); const im = res.image;
+        total += (im.duration || 33333) * step;
+        g.drawImage(im, (k % cols) * size, Math.floor(k / cols) * size, size, size); im.close();
+      }
+      dec.close();
+      const blob = await oc.convertToBlob({type: 'image/webp', quality: 0.9});
+      self.postMessage({id, ok: true, blob, frames, cols, size, dur: Math.max(20, total / 1000 / frames)});
+    }catch(e){ self.postMessage({id, ok: false, err: String(e && e.message || e)}); }
+  };`;
+  let pool = [], rr = 0, seq = 0; const waiting = new Map();
+  function worker(){
+    if(!pool.length){
+      try{
+        const u = URL.createObjectURL(new Blob([WSRC], {type: 'text/javascript'}));
+        for(let i = 0; i < 2; i++){ const w = new Worker(u); w.onmessage = (ev)=>{ const cb = waiting.get(ev.data.id); if(cb){ waiting.delete(ev.data.id); cb(ev.data); } }; pool.push(w); }
+      }catch(e){ return null; }
+    }
+    return pool[(rr++) % pool.length];
+  }
+  /* ---------- память телефона ---------- */
+  let dbp = null;
+  const idb = ()=> dbp || (dbp = new Promise((res)=>{ try{ const r = indexedDB.open('liveSprites', 1); r.onupgradeneeded = ()=> r.result.createObjectStore('sp'); r.onsuccess = ()=> res(r.result); r.onerror = ()=> res(null); }catch(e){ res(null); } }));
+  const dget = async (k)=>{ const d = await idb(); if(!d) return null; return new Promise((res)=>{ try{ const r = d.transaction('sp').objectStore('sp').get(k); r.onsuccess = ()=> res(r.result || null); r.onerror = ()=> res(null); }catch(e){ res(null); } }); };
+  const dput = async (k, v)=>{ const d = await idb(); if(!d) return; try{ d.transaction('sp', 'readwrite').objectStore('sp').put(v, k); }catch(e){} };
+  /* ---------- раскладка (из телефона или скачать) ---------- */
+  const sprites = new Map();   /* key -> Promise<{blob, frames, cols, size, dur}> */
+  let busy = 0; const jobs = [];
+  function runJobs(){
+    while(busy < 2 && jobs.length){
+      const j = jobs.pop(); busy++;
+      const w = worker();
+      if(!w){ busy--; j.rej(new Error('no worker')); continue; }
+      const id = ++seq;
+      waiting.set(id, (d)=>{ busy--; setTimeout(runJobs, 30); d.ok ? j.res(d) : j.rej(new Error(d.err)); });
+      w.postMessage({id, url: j.url, size: j.size, maxFrames: j.maxFrames});
+    }
+  }
+  function sprite(e, size){
+    const code = animCode(e), key = code + '@' + size;
+    if(sprites.has(key)) return sprites.get(key);
+    const p = (async ()=>{
+      const c = await dget(key); if(c && c.blob) return c;
+      let url = NET + code + '/512.webp';
+      try{ const u = window.animEmojiUrl && animEmojiUrl(e); if(u && u.startsWith('blob:')) url = u; }catch(er){}
+      const d = await new Promise((res, rej)=>{ jobs.push({url, size, maxFrames: size > 120 ? 36 : 48, res, rej}); runJobs(); });
+      const v = {blob: d.blob, frames: d.frames, cols: d.cols, size: d.size, dur: d.dur};
+      dput(key, v);
+      return v;
+    })();
+    sprites.set(key, p);
+    p.catch(()=> sprites.delete(key));
+    return p;
+  }
+  /* ---------- общий таймер: рисуем только видимые ---------- */
+  const bitmaps = new Map();  /* key -> {bmp, refs, last} */
+  const items = new Set();
+  let raf = 0;
+  async function bitmapFor(key, sp){
+    let b = bitmaps.get(key);
+    if(!b){ b = {bmp: null, refs: 0, last: 0, p: createImageBitmap(sp.blob).then((x)=>{ b.bmp = x; return x; })}; bitmaps.set(key, b); }
+    b.last = performance.now();
+    await b.p; return b;
+  }
+  function loop(now){
+    raf = 0; let any = false;
+    items.forEach((it)=>{
+      if(!it.cv.isConnected){ items.delete(it); io.unobserve(it.cv); return; }
+      if(!it.vis || !it.b || !it.b.bmp) return;
+      any = true; it.b.last = now;
+      const sp = it.sp, f = Math.floor((now - it.t0) / sp.dur) % sp.frames;
+      if(f === it.f) return; it.f = f;
+      const s = sp.size, g = it.g;
+      g.clearRect(0, 0, s, s);
+      g.drawImage(it.b.bmp, (f % sp.cols) * s, Math.floor(f / sp.cols) * s, s, s, 0, 0, s, s);
+    });
+    if(any) raf = requestAnimationFrame(loop);
+  }
+  const kick = ()=>{ if(!raf) raf = requestAnimationFrame(loop); };
+  const io = new IntersectionObserver((ents)=>{
+    ents.forEach((en)=>{ const it = en.target.__la; if(!it) return; it.vis = en.isIntersecting; if(it.vis && !it.b) bitmapFor(it.key, it.sp).then((b)=>{ it.b = b; kick(); }).catch(()=>{}); });
+    kick();
+  }, {rootMargin: '60px'});
+  /* невидимые долго — освобождаем память */
+  setInterval(()=>{
+    const now = performance.now(), used = new Set();
+    items.forEach((it)=>{ if(it.vis && it.cv.isConnected) used.add(it.key); });
+    bitmaps.forEach((b, k)=>{ if(!used.has(k) && now - b.last > 8000){ try{ b.bmp && b.bmp.close(); }catch(e){} bitmaps.delete(k); items.forEach((it)=>{ if(it.key === k) it.b = null; }); } });
+  }, 4000);
+  document.addEventListener('visibilitychange', kick);
+
+  /* заменить статичную картинку живой анимацией */
+  function attach(img, e, size){
+    if(!img || !img.isConnected || img.__laDone) return Promise.resolve(false);
+    img.__laDone = true;
+    if(!hasAnim(e)) return Promise.resolve(false);
+    size = size || 96;
+    return sprite(e, size).then((sp)=>{
+      if(!img.isConnected) return false;
+      const cv = document.createElement('canvas'); cv.width = sp.size; cv.height = sp.size;
+      cv.className = (img.className || '') + ' la-cv'; cv.setAttribute('aria-label', e);
+      const g = cv.getContext('2d');
+      const it = {cv, g, sp, key: animCode(e) + '@' + size, t0: performance.now() - Math.random() * 400, f: -1, vis: false, b: null};
+      cv.__la = it; items.add(it);
+      /* первый кадр сразу, чтобы не мигало */
+      bitmapFor(it.key, sp).then((b)=>{ it.b = b; g.drawImage(b.bmp, 0, 0, sp.size, sp.size, 0, 0, sp.size, sp.size); if(img.isConnected) img.replaceWith(cv); io.observe(cv); kick(); }).catch(()=>{});
+      return true;
+    }).catch(()=> false);
+  }
+  window.LiveAnim = {ok, attach, hasAnim, sprite};
+})();
+
+/* ---------- ещё больше живых стикеров и подвижные 3D-стикеры ---------- */
+(function moreLiveStickers(){
+  const F = window.emo3dUrl; if(!F || !window.EMO_GROUPS) return;
+  const MOTION = {smileys: 'bounce', people: 'wave', animals: 'hop', food: 'wobble', travel: 'float', activities: 'pulse', objects: 'swing', symbols: 'beat'};
+  window.STK_MOTION = MOTION;
+  /* живые: все анимированные смайлики, по группам */
+  window.LIVE_STICKER_GROUPS = (window.NOTO_ANIM_GROUPS || []).filter((g)=> g.name !== 'Флаги' && g.list).map((g, i)=> ({id: 'na' + i, name: g.name + ' — живые', icon: g.list.split('|')[0], arr: g.list.split('|')}));
+  /* 3D-стикеры двигаются, когда видны */
+  const io = new IntersectionObserver((ents)=> ents.forEach((en)=> en.target.classList.toggle('mv-on', en.isIntersecting)), {rootMargin: '40px'});
+  window.__mvObserve = (root)=> root.querySelectorAll('img[data-mv]').forEach((i)=> io.observe(i));
+  /* стикер-сообщения: 3D — двигаются; свой живой — собирается из частей */
+  function paintAnim(box, a){
+    const s = a.size || 320;
+    box.innerHTML = '';
+    box.className = 'ast';
+    (a.layers || []).forEach((L)=>{
+      const im = document.createElement('img');
+      im.src = L.src; im.alt = ''; im.draggable = false;
+      im.className = 'ast-l' + (L.m && L.m !== 'none' ? ' am-' + L.m : '');
+      Object.assign(im.style, {left: (L.x / s * 100) + '%', top: (L.y / s * 100) + '%', width: (L.w / s * 100) + '%', height: (L.h / s * 100) + '%', animationDuration: (1.6 / (L.sp || 1)).toFixed(2) + 's'});
+      if(L.o) im.style.transformOrigin = L.o;
+      box.appendChild(im);
+    });
+  }
+  window.__paintAnimSticker = paintAnim;
+  function upgradeRows(){
+    const box = document.getElementById('messages'); if(!box || !state.currentMessages) return;
+    box.querySelectorAll('.msg-row.sticker-msg[data-id]:not([data-mv2])').forEach((row)=>{
+      row.setAttribute('data-mv2', '1');
+      const m = state.currentMessages.find((x)=> x.id === row.dataset.id); if(!m) return;
+      const img = row.querySelector('.bubble img'); if(!img) return;
+      if(m.anim && m.anim.layers){ const d = document.createElement('div'); img.replaceWith(d); paintAnim(d, m.anim); return; }
+      if(m.fluent && m.motion){ img.classList.add('mv-' + m.motion, 'mv-on'); }
+    });
+  }
+  new MutationObserver(()=> requestAnimationFrame(upgradeRows)).observe(document.body, {childList: true, subtree: true});
+})();
+
+/* ---------- свой живой стикер: нарисовать по частям и выбрать движение ---------- */
+(function liveStickerMaker(){
+  const S = 360;   /* размер стикера */
+  const MOT = [['none', '⏸', 'Не двигается'], ['swing', '〰️', 'Качается'], ['hop', '⬆️', 'Прыгает'], ['pulse', '💓', 'Пульсирует'], ['wave', '👋', 'Машет'], ['spin', '🔄', 'Крутится'], ['float', '🎈', 'Плывёт'], ['shake', '🫨', 'Дрожит'], ['blink', '✨', 'Мигает']];
+  const ORIGIN = {wave: '50% 100%'};
+  const b64 = (str)=>{ const by = new TextEncoder().encode(str); let s = ''; for(let i = 0; i < by.length; i += 0x8000) s += String.fromCharCode.apply(null, by.subarray(i, i + 0x8000)); return btoa(s); };
+  window.__animFromData = (u)=>{
+    try{
+      if(!u || !/^data:application\/json/.test(u)) return null;
+      const bin = atob(u.slice(u.indexOf(',') + 1)); const by = new Uint8Array(bin.length); for(let i = 0; i < bin.length; i++) by[i] = bin.charCodeAt(i);
+      return JSON.parse(new TextDecoder().decode(by));
+    }catch(e){ return null; }
+  };
+  window.sendAnimSticker = async (id)=>{
+    const chat = state.activeChatId; if(!chat) return;
+    const s = ((window.chatPrefs || {}).stickers || []).find((m)=> m.id === id); if(!s) return;
+    const a = window.__animFromData(await window.__stickerData(s)); if(!a){ toast('Стикер не загрузился'); return; }
+    const p = document.getElementById('emoji-panel'); if(p) p.style.display = 'none';
+    try{
+      await sendMessage(chat, 'image', a.flat, null, {sticker: true, stickerEmoji: a.e || '🎨', anim: {size: a.size, layers: a.layers}});
+      db.collection('chats').doc(chat).set({lastMessage: '🎭 Стикер'}, {merge: true}).catch(()=>{});
+      haptic('buttons', 8);
+    }catch(e){ toast('Стикер не отправился'); }
+  };
+  const COLORS = ['#111318', '#ffffff', '#ff3b5c', '#ff8a00', '#ffd23f', '#2fd36f', '#1fb8ff', '#4c6ef5', '#9b5cff', '#ff6fb0', '#8b5a2b', '#9aa3b2'];
+  const STAMPS = ['😀', '😂', '😍', '😎', '🥳', '😭', '😡', '🤔', '👍', '👋', '❤️', '🔥', '⭐', '🎉', '🌸', '🐱', '🐶', '🦄', '🍕', '🎈', '👀', '💋', '👑', '🌈'];
+  window.openLiveStickerMaker = function(done){
+    const ov = document.createElement('div'); ov.className = 'lsm';
+    ov.innerHTML = `<div class="lsm-card">
+      <div class="lsm-head"><button type="button" data-a="x">✕</button><b>Живой стикер</b><button type="button" data-a="play" class="lsm-play">▶ Смотреть</button><button type="button" data-a="ok" class="lsm-ok">Готово</button></div>
+      <div class="lsm-stage" id="lsm-stage"></div>
+      <div class="lsm-layers" id="lsm-layers" data-no-swipe></div>
+      <div class="lsm-l">Как двигается выбранная часть</div>
+      <div class="lsm-mot" id="lsm-mot" data-no-swipe>${MOT.map(([k, i, n])=> `<button type="button" data-mot="${k}"><i>${i}</i><span>${n}</span></button>`).join('')}</div>
+      <div class="lsm-row"><span>Скорость</span><input type="range" id="lsm-sp" min="0.4" max="2.5" step="0.1" value="1"></div>
+      <div class="lsm-tools" data-no-swipe><button type="button" data-tool="pen" class="on">✏️ Кисть</button><button type="button" data-tool="erase">🧽 Ластик</button><button type="button" data-tool="stamp">😀 Смайлик</button><button type="button" data-a="photo">🖼 Фото</button><button type="button" data-a="undo">↶</button><button type="button" data-a="clear">🗑</button></div>
+      <div class="lsm-row"><span>Толщина</span><input type="range" id="lsm-w" min="2" max="40" value="10"></div>
+      <div class="lsm-colors" id="lsm-colors" data-no-swipe>${COLORS.map((c, i)=> `<button type="button" data-col="${c}" class="${i ? '' : 'on'}" style="background:${c}"></button>`).join('')}</div>
+      <div class="lsm-stamps" id="lsm-stamps" style="display:none" data-no-swipe>${STAMPS.map((e)=> `<button type="button" data-stamp="${e}"><img src="${window.emo3dUrl ? emo3dUrl(e) : ''}" alt="${e}"></button>`).join('')}</div>
+      <div class="lsm-tip">Нарисуйте основу, затем «＋ Часть» — нарисуйте то, что будет двигаться (руку, глаза, сердечко), и выберите движение.</div>
+    </div>`;
+    document.body.appendChild(ov); requestAnimationFrame(()=> ov.classList.add('on'));
+    const $ = (q)=> ov.querySelector(q), stage = $('#lsm-stage');
+    const layers = []; let cur = 0, tool = 'pen', color = COLORS[0], width = 10, stamp = '😀', playing = false;
+    const hist = [];
+    function addLayer(name){
+      const cv = document.createElement('canvas'); cv.width = S; cv.height = S; cv.className = 'lsm-cv';
+      stage.appendChild(cv);
+      layers.push({cv, g: cv.getContext('2d'), m: layers.length ? 'swing' : 'none', sp: 1, name});
+      cur = layers.length - 1; paintUi();
+    }
+    function paintUi(){
+      $('#lsm-layers').innerHTML = layers.map((L, i)=> `<button type="button" data-ly="${i}" class="${i === cur ? 'on' : ''}"><b>${i ? 'Часть ' + i : 'Основа'}</b><small>${(MOT.find((m)=> m[0] === L.m) || MOT[0])[2]}</small></button>`).join('') + (layers.length < 6 ? '<button type="button" data-a="add" class="add">＋ Часть</button>' : '');
+      ov.querySelectorAll('[data-mot]').forEach((b)=> b.classList.toggle('on', b.dataset.mot === layers[cur].m));
+      $('#lsm-sp').value = layers[cur].sp;
+      layers.forEach((L, i)=> L.cv.classList.toggle('dim', i !== cur && !playing));
+    }
+    addLayer();
+    const pos = (ev)=>{ const r = stage.getBoundingClientRect(); return {x: (ev.clientX - r.left) / r.width * S, y: (ev.clientY - r.top) / r.height * S}; };
+    let drawing = null;
+    stage.addEventListener('pointerdown', (ev)=>{
+      if(playing) stopPlay();
+      const L = layers[cur], p = pos(ev);
+      hist.push({i: cur, d: L.g.getImageData(0, 0, S, S)}); if(hist.length > 30) hist.shift();
+      if(tool === 'stamp'){
+        const im = new Image(); im.crossOrigin = 'anonymous';
+        const sz = Math.max(40, width * 6);
+        im.onload = ()=>{ L.g.drawImage(im, p.x - sz / 2, p.y - sz / 2, sz, sz); };
+        im.onerror = ()=>{ L.g.font = sz * .8 + 'px sans-serif'; L.g.textAlign = 'center'; L.g.textBaseline = 'middle'; L.g.fillText(stamp, p.x, p.y); };
+        im.src = window.emo3dUrl ? emo3dUrl(stamp) : '';
+        return;
+      }
+      stage.setPointerCapture(ev.pointerId);
+      drawing = {last: p};
+      const g = L.g; g.lineCap = 'round'; g.lineJoin = 'round'; g.lineWidth = width;
+      g.globalCompositeOperation = tool === 'erase' ? 'destination-out' : 'source-over'; g.strokeStyle = color; g.fillStyle = color;
+      g.beginPath(); g.arc(p.x, p.y, width / 2, 0, Math.PI * 2); g.fill();
+    });
+    stage.addEventListener('pointermove', (ev)=>{
+      if(!drawing) return; const p = pos(ev), g = layers[cur].g, l = drawing.last;
+      g.beginPath(); g.moveTo(l.x, l.y); g.quadraticCurveTo(l.x, l.y, (l.x + p.x) / 2, (l.y + p.y) / 2); g.lineTo(p.x, p.y); g.stroke();
+      drawing.last = p;
+    });
+    const end = ()=>{ if(drawing){ drawing = null; layers[cur].g.globalCompositeOperation = 'source-over'; } };
+    stage.addEventListener('pointerup', end); stage.addEventListener('pointercancel', end);
+    function bbox(L){
+      const d = L.g.getImageData(0, 0, S, S).data; let x0 = S, y0 = S, x1 = -1, y1 = -1;
+      for(let y = 0; y < S; y++) for(let x = 0; x < S; x++) if(d[(y * S + x) * 4 + 3] > 8){ if(x < x0) x0 = x; if(x > x1) x1 = x; if(y < y0) y0 = y; if(y > y1) y1 = y; }
+      if(x1 < 0) return null; return {x: Math.max(0, x0 - 2), y: Math.max(0, y0 - 2), w: Math.min(S, x1 + 3) - Math.max(0, x0 - 2), h: Math.min(S, y1 + 3) - Math.max(0, y0 - 2)};
+    }
+    function startPlay(){
+      playing = true; $('.lsm-play').textContent = '⏸ Стоп';
+      layers.forEach((L)=>{
+        L.cv.classList.remove('dim'); L.cv.className = 'lsm-cv' + (L.m !== 'none' ? ' am-' + L.m : '');
+        const b = bbox(L); if(b){ const o = ORIGIN[L.m] ? `${(b.x + b.w / 2) / S * 100}% ${(b.y + b.h) / S * 100}%` : `${(b.x + b.w / 2) / S * 100}% ${(b.y + b.h / 2) / S * 100}%`; L.cv.style.transformOrigin = o; }
+        L.cv.style.animationDuration = (1.6 / L.sp).toFixed(2) + 's';
+      });
+    }
+    function stopPlay(){ playing = false; $('.lsm-play').textContent = '▶ Смотреть'; layers.forEach((L)=>{ L.cv.className = 'lsm-cv'; L.cv.style.animationDuration = ''; }); paintUi(); }
+    async function finish(){
+      const out = [];
+      for(const L of layers){
+        const b = bbox(L); if(!b) continue;
+        const c = document.createElement('canvas'); c.width = b.w; c.height = b.h; c.getContext('2d').drawImage(L.cv, b.x, b.y, b.w, b.h, 0, 0, b.w, b.h);
+        out.push({src: c.toDataURL('image/webp', .86), x: b.x, y: b.y, w: b.w, h: b.h, m: L.m, sp: L.sp, o: ORIGIN[L.m] || ''});
+      }
+      if(!out.length){ toast('Нарисуйте что-нибудь'); return; }
+      const flat = document.createElement('canvas'); flat.width = S; flat.height = S; const fg = flat.getContext('2d'); layers.forEach((L)=> fg.drawImage(L.cv, 0, 0));
+      const obj = {v: 1, size: S, e: '🎨', layers: out, flat: flat.toDataURL('image/webp', .86)};
+      const btn = $('.lsm-ok'); btn.disabled = true; btn.textContent = 'Сохраняю…';
+      try{
+        await window.__addMySticker('data:application/json;base64,' + b64(JSON.stringify(obj)), '🎨');
+        toast('Живой стикер сохранён в «Мои»'); haptic('buttons', [10, 30, 10]);
+        close(); done && done();
+      }catch(e){ console.warn('live sticker', e); toast('Не удалось сохранить'); btn.disabled = false; btn.textContent = 'Готово'; }
+    }
+    const close = ()=>{ ov.classList.remove('on'); setTimeout(()=> ov.remove(), 220); };
+    ov.addEventListener('click', (ev)=>{
+      const t = ev.target;
+      const ly = t.closest('[data-ly]'); if(ly){ cur = +ly.dataset.ly; if(playing) stopPlay(); paintUi(); return; }
+      const mo = t.closest('[data-mot]'); if(mo){ layers[cur].m = mo.dataset.mot; paintUi(); if(playing) startPlay(); haptic && haptic('buttons', 5); return; }
+      const tl = t.closest('[data-tool]'); if(tl){ tool = tl.dataset.tool; ov.querySelectorAll('[data-tool]').forEach((b)=> b.classList.toggle('on', b === tl)); $('#lsm-stamps').style.display = tool === 'stamp' ? '' : 'none'; $('#lsm-colors').style.display = tool === 'stamp' ? 'none' : ''; return; }
+      const co = t.closest('[data-col]'); if(co){ color = co.dataset.col; ov.querySelectorAll('[data-col]').forEach((b)=> b.classList.toggle('on', b === co)); if(tool === 'erase'){ tool = 'pen'; ov.querySelectorAll('[data-tool]').forEach((b)=> b.classList.toggle('on', b.dataset.tool === 'pen')); } return; }
+      const st = t.closest('[data-stamp]'); if(st){ stamp = st.dataset.stamp; ov.querySelectorAll('[data-stamp]').forEach((b)=> b.classList.toggle('on', b === st)); return; }
+      const a = t.closest('[data-a]'); if(!a) return;
+      const k = a.dataset.a;
+      if(k === 'x'){ close(); return; }
+      if(k === 'add'){ if(playing) stopPlay(); addLayer(); return; }
+      if(k === 'play'){ playing ? stopPlay() : startPlay(); return; }
+      if(k === 'ok'){ if(playing) stopPlay(); finish(); return; }
+      if(k === 'undo'){ const h = hist.pop(); if(h && layers[h.i]) layers[h.i].g.putImageData(h.d, 0, 0); return; }
+      if(k === 'clear'){ const L = layers[cur]; hist.push({i: cur, d: L.g.getImageData(0, 0, S, S)}); L.g.clearRect(0, 0, S, S); return; }
+      if(k === 'photo'){
+        const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/*';
+        inp.onchange = ()=>{ const f = inp.files && inp.files[0]; if(!f) return; const u = URL.createObjectURL(f); const im = new Image(); im.onload = ()=>{ const L = layers[cur]; hist.push({i: cur, d: L.g.getImageData(0, 0, S, S)}); const k2 = Math.min(S / im.width, S / im.height); L.g.drawImage(im, (S - im.width * k2) / 2, (S - im.height * k2) / 2, im.width * k2, im.height * k2); URL.revokeObjectURL(u); }; im.src = u; };
+        inp.click(); return;
+      }
+    });
+    ov.addEventListener('input', (ev)=>{ if(ev.target.id === 'lsm-w') width = +ev.target.value; if(ev.target.id === 'lsm-sp'){ layers[cur].sp = +ev.target.value; if(playing) startPlay(); } });
+  };
 })();
