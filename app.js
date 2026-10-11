@@ -1834,6 +1834,11 @@ window.__appLoaded=!0;let firebaseConfig={apiKey:"AIzaSyCqHBCbqGSuo4V2FpQ9QICg00
     }
   }catch(e){ console.warn('write hooks', e); }
 
+  /* ---------- для «Вложений»: вся история чата из телефона + докачка ---------- */
+  window.__chatLocalAll = async (cid)=>{ const c = chat(cid); await c.loadP; return sorted(c); };
+  window.__chatLocalAdd = (cid, rows)=>{ const c = chat(cid); rows.forEach((m)=>{ m.chatId = m.chatId || cid; if(!c.map.has(m.id)) c.map.set(m.id, m); }); idbPut(rows); };
+  window.__chatLocalReachedStart = (cid)=>{ const c = chat(cid); c.meta.reachedStart = true; metaPut(c.meta); };
+
   /* ---------- выход из аккаунта — чистим память телефона ---------- */
   window.__chatLocalClear = async ()=>{ mem.clear(); try{ const d = await idb(); if(d){ d.transaction('msgs', 'readwrite').objectStore('msgs').clear(); d.transaction('meta', 'readwrite').objectStore('meta').clear(); } }catch(e){} };
   let lastUid = null;
@@ -3659,4 +3664,105 @@ window.NOTO_ANIM_GROUPS=[{"name":"Смайлики","list":"😀|😃|😄|😁|
     playNotificationSound(name, vol);
     timer = setInterval(()=> playNotificationSound(name, vol), Math.round((len + 0.7) * 1000));
   };
+})();
+
+/* ============================================================
+   ROUND 193
+   • «Вложения» чата больше не пишут «Не удалось загрузить»:
+     фото, видео и файлы берутся из памяти телефона сразу, а
+     недостающие старые — докачиваются из базы частями (раньше
+     приложение пыталось скачать всю переписку одним запросом —
+     в большом чате это не проходило);
+   • правило: чат всегда открывается на последнем сообщении —
+     даже если до этого вы листали вверх, а фото/видео/смайлики
+     догружаются уже после открытия
+============================================================ */
+(function attachmentsFromPhone(){
+  if(typeof openMediaGallery !== 'function') return;
+  const PAGE = 150;
+  const esc = (s)=> typeof escapeHtml === 'function' ? escapeHtml(String(s || '')) : String(s || '');
+  const visible = (m, me, now)=> !(m.hiddenFor || []).includes(me) && (!m.expireAt || m.expireAt > now);
+
+  function draw(body, list, note){
+    const me = state.currentUser.uid, now = Date.now();
+    const all = list.filter((m)=> visible(m, me, now)).slice().reverse();
+    const imgs = all.filter((m)=> m.type === 'image' && m.content);
+    const vids = all.filter((m)=> m.type === 'video' && m.content);
+    const files = all.filter((m)=> m.type === 'file' && m.content);
+    if(!imgs.length && !vids.length && !files.length){
+      body.innerHTML = note ? `<div class="search-note">${note}</div>` : '<div class="empty-list">Файлов и фото в этом чате пока нет.</div>';
+      return;
+    }
+    const head = (t, n, first)=> `<div style="font-size:calc(12.5px * var(--font-scale));color:var(--text-muted);margin:${first ? 0 : 18}px 0 8px 0;">${t} (${n})</div>`;
+    let h = note ? `<div class="search-note" style="margin-bottom:10px">${note}</div>` : '';
+    if(imgs.length) h += head('Фото', imgs.length, !note) + `<div class="media-grid">${imgs.map((m, i)=> `<img src="${esc(m.content)}" data-idx="${i}" class="media-thumb" loading="lazy" decoding="async">`).join('')}</div>`;
+    if(vids.length) h += head('Видео', vids.length, !imgs.length && !note) + `<div class="media-grid">${vids.map((m, i)=> `<div class="media-thumb mg-vid" data-vid="${i}" style="position:relative;background:#111 center/cover no-repeat${m.thumbnail ? ` url('${esc(m.thumbnail)}')` : ''}"><span style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#fff;font-size:26px;text-shadow:0 1px 6px rgba(0,0,0,.6)">▶</span></div>`).join('')}</div>`;
+    if(files.length) h += head('Файлы', files.length, !imgs.length && !vids.length && !note) + `<div>${files.map((m)=> `<a href="${esc(m.content)}" download="${esc(m.fileName || 'file')}" class="file-msg" style="display:block;padding:9px 0;border-bottom:1px solid var(--border);color:var(--accent);">📄 ${esc(m.fileName || 'Файл')}</a>`).join('')}</div>`;
+    body.innerHTML = h;
+    const srcs = imgs.map((m)=> m.content);
+    body.querySelectorAll('img.media-thumb').forEach((t)=> t.addEventListener('click', ()=> openLightbox(srcs, parseInt(t.dataset.idx, 10))));
+    body.querySelectorAll('.mg-vid').forEach((t)=> t.addEventListener('click', ()=>{
+      const m = vids[+t.dataset.vid]; if(!m) return;
+      const ov = document.createElement('div');
+      ov.style.cssText = 'position:fixed;inset:0;z-index:6000;background:#000;display:flex;align-items:center;justify-content:center';
+      ov.innerHTML = `<video src="${esc(m.content)}" ${m.thumbnail ? `poster="${esc(m.thumbnail)}"` : ''} controls autoplay playsinline style="max-width:100%;max-height:100%"></video><button type="button" style="position:absolute;top:calc(14px + var(--top-inset,0px));right:14px;width:40px;height:40px;border-radius:50%;background:rgba(255,255,255,.18);color:#fff;font-size:20px">✕</button>`;
+      const close = ()=>{ try{ ov.querySelector('video').pause(); }catch(e){} ov.remove(); };
+      ov.querySelector('button').onclick = close;
+      document.body.appendChild(ov);
+    }));
+  }
+
+  openMediaGallery = async function(cid){
+    const ov = document.getElementById('media-overlay'), body = document.getElementById('media-body');
+    body.innerHTML = '<div class="search-note">Загрузка…</div>';
+    ov.style.display = 'flex';
+    let list = [];
+    try{ list = window.__chatLocalAll ? await __chatLocalAll(cid) : []; }catch(e){}
+    draw(body, list, list.length ? '' : 'Загрузка…');
+    /* докачать из базы то, чего ещё нет в телефоне — частями, от самых старых */
+    if(!navigator.onLine){ if(!list.length) draw(body, list, 'Нет интернета — вложения появятся, когда телефон подключится.'); return; }
+    try{
+      const have = new Set(list.map((m)=> m.id));
+      let after = null, got = 0, round = 0;
+      while(round++ < 60 && ov.style.display !== 'none'){
+        let q = db.collection('messages').where('chatId', '==', cid).orderBy('timestamp', 'asc');
+        if(after != null) q = q.startAfter(after);
+        const qs = await q.limit(PAGE).get();
+        const rows = qs.docs.map((d)=> ({id: d.id, ...d.data(), chatId: cid}));
+        const fresh = rows.filter((m)=> !have.has(m.id));
+        if(fresh.length){ fresh.forEach((m)=> have.add(m.id)); try{ window.__chatLocalAdd && __chatLocalAdd(cid, fresh); }catch(e){} list = list.concat(fresh); got += fresh.length; }
+        if(rows.length < PAGE){ try{ window.__chatLocalReachedStart && __chatLocalReachedStart(cid); }catch(e){} break; }
+        after = rows[rows.length - 1].timestamp;
+        if(fresh.length && round % 3 === 0) draw(body, list.slice().sort((a, b)=> (+a.timestamp || 0) - (+b.timestamp || 0)), 'Догружаю старые вложения…');
+      }
+      if(ov.style.display !== 'none') draw(body, list.slice().sort((a, b)=> (+a.timestamp || 0) - (+b.timestamp || 0)), '');
+    }catch(e){
+      console.warn('media gallery', e);
+      if(ov.style.display !== 'none') draw(body, list, list.length ? 'Показаны вложения, сохранённые в телефоне.' : 'Не удалось связаться с базой — попробуйте позже.');
+    }
+  };
+})();
+
+/* ---------- правило: чат открывается на последнем сообщении ---------- */
+(function alwaysLastMessage(){
+  const box = document.getElementById('messages'); if(!box || typeof openChat !== 'function') return;
+  let until = 0;
+  const user = ()=>{ until = 0; };
+  ['touchstart', 'wheel', 'pointerdown', 'keydown'].forEach((t)=> box.addEventListener(t, user, {passive: true, capture: true}));
+  const D = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollTop');
+  const toBottom = ()=>{ if(Date.now() < until && D && D.set) D.set.call(box, box.scrollHeight); };
+  /* пока догружаются фото, видео, живые смайлики — держим низ (до 4 секунд или до первого касания) */
+  const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(()=> requestAnimationFrame(toBottom)) : null;
+  const watch = ()=>{ if(!ro) return; ro.disconnect(); ro.observe(box); Array.from(box.children).forEach((c)=> ro.observe(c)); };
+  new MutationObserver(()=>{ if(Date.now() < until){ watch(); requestAnimationFrame(toBottom); } }).observe(box, {childList: true});
+  openChat = (function(orig){ return async function(...a){
+    until = Date.now() + 4000;
+    try{ window.__msgReleaseBottom && __msgReleaseBottom(); }catch(e){}
+    const r = await orig.apply(this, a);
+    until = Date.now() + 4000;
+    watch(); toBottom();
+    [80, 250, 600, 1200, 2000, 3200].forEach((t)=> setTimeout(toBottom, t));
+    return r;
+  }; })(openChat);
+  window.openChat = openChat;
 })();
