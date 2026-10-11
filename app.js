@@ -2219,7 +2219,7 @@ window.EMO_GROUPS=[{"id": "smileys", "name": "Смайлики", "icon": "😀",
     const secs = [];
     const rec = getRecent('stk2Recent');
     if(rec.length) secs.push({id: 'recent', name: 'Недавние', icon: '🕘', html: rec.map((r)=> r.k === 'f' ? cell(r.e, 'data-stk3d', false, 's2-cell', r.mv || 'bounce') : r.k === 'n' ? cell(r.e, 'data-stk-noto', true, 's2-cell') : (mine.some((m)=> m.id === r.id) ? `<button type="button" class="s2-cell" data-stk-mine="${H(r.id)}"><img class="e3 s2-mine" data-s2load="${H(r.id)}" alt=""></button>` : '')).join('')});
-    secs.push({id: 'mine', name: 'Мои стикеры', icon: '⭐', html: '<button type="button" class="s2-cell s2-add" data-stk-new>＋<small>Из фото</small></button><button type="button" class="s2-cell s2-add s2-draw" data-stk-draw>🎨<small>Нарисовать живой</small></button>' + mine.slice().reverse().map((m)=> /json/.test(m.mime || '') ? `<button type="button" class="s2-cell" data-stk-anim="${H(m.id)}"><div class="ast s2-anim" data-s2anim="${H(m.id)}"></div></button>` : `<button type="button" class="s2-cell" data-stk-mine="${H(m.id)}"><img class="e3 s2-mine" data-s2load="${H(m.id)}" alt="${H(m.e || '')}"></button>`).join('')});
+    secs.push({id: 'mine', name: 'Мои стикеры', icon: '⭐', html: '<button type="button" class="s2-cell s2-add" data-stk-new>＋<small>Из фото</small></button><button type="button" class="s2-cell s2-add s2-draw" data-stk-draw>🙂<small>Живой мемоджи</small></button>' + mine.slice().reverse().map((m)=> /json/.test(m.mime || '') ? `<button type="button" class="s2-cell" data-stk-anim="${H(m.id)}"><div class="ast s2-anim" data-s2anim="${H(m.id)}"></div></button>` : `<button type="button" class="s2-cell" data-stk-mine="${H(m.id)}"><img class="e3 s2-mine" data-s2load="${H(m.id)}" alt="${H(m.e || '')}"></button>`).join('')});
     (window.LIVE_STICKER_GROUPS || []).forEach((g)=> secs.push({id: 's-' + g.id, name: '✨ ' + g.name, icon: g.icon, html: g.arr.map((e)=> cell(e, 'data-stk-noto', true, 's2-cell')).join('')}));
     EMO_GROUPS.filter((g)=> g.id !== 'flags').forEach((g)=> secs.push({id: 'f-' + g.id, name: g.name + ' 3D — двигаются', icon: g.icon, html: g.arr.map((e)=> cell(e, 'data-stk3d', false, 's2-cell', (window.STK_MOTION || {})[g.id] || 'bounce')).join('')}));
     return secs;
@@ -2489,12 +2489,15 @@ window.NOTO_ANIM_GROUPS=[{"name":"Смайлики","list":"😀|😃|😄|😁|
   function paintAnim(box, a){
     const s = a.size || 320;
     box.innerHTML = '';
-    box.className = 'ast';
+    const DUR = window.__AM_DUR || {}, ORG = window.__AM_ORIGIN || {};
+    box.className = 'ast' + (a.all && a.all !== 'none' ? ' am-' + a.all : '');
+    box.style.animationDuration = a.all && a.all !== 'none' ? (DUR[a.all] || 1.6) + 's' : '';
+    box.style.transformOrigin = a.all && a.all !== 'none' ? (ORG[a.all] || '50% 60%') : '';
     (a.layers || []).forEach((L)=>{
       const im = document.createElement('img');
       im.src = L.src; im.alt = ''; im.draggable = false;
       im.className = 'ast-l' + (L.m && L.m !== 'none' ? ' am-' + L.m : '');
-      Object.assign(im.style, {left: (L.x / s * 100) + '%', top: (L.y / s * 100) + '%', width: (L.w / s * 100) + '%', height: (L.h / s * 100) + '%', animationDuration: (1.6 / (L.sp || 1)).toFixed(2) + 's'});
+      Object.assign(im.style, {left: (L.x / s * 100) + '%', top: (L.y / s * 100) + '%', width: (L.w / s * 100) + '%', height: (L.h / s * 100) + '%', animationDuration: ((DUR[L.m] || 1.6) / (L.sp || 1)).toFixed(2) + 's'});
       if(L.o) im.style.transformOrigin = L.o;
       box.appendChild(im);
     });
@@ -2532,7 +2535,7 @@ window.NOTO_ANIM_GROUPS=[{"name":"Смайлики","list":"😀|😃|😄|😁|
     const a = window.__animFromData(await window.__stickerData(s)); if(!a){ toast('Стикер не загрузился'); return; }
     const p = document.getElementById('emoji-panel'); if(p) p.style.display = 'none';
     try{
-      await sendMessage(chat, 'image', a.flat, null, {sticker: true, stickerEmoji: a.e || '🎨', anim: {size: a.size, layers: a.layers}});
+      await sendMessage(chat, 'image', a.flat, null, {sticker: true, stickerEmoji: a.e || '🎨', anim: {size: a.size, layers: a.layers, all: a.all || 'none'}});
       db.collection('chats').doc(chat).set({lastMessage: '🎭 Стикер'}, {merge: true}).catch(()=>{});
       haptic('buttons', 8);
     }catch(e){ toast('Стикер не отправился'); }
@@ -3765,4 +3768,446 @@ window.NOTO_ANIM_GROUPS=[{"name":"Смайлики","list":"😀|😃|😄|😁|
     return r;
   }; })(openChat);
   window.openChat = openChat;
+})();
+
+/* ============================================================
+   ROUND 194 — свой живой мемоджи
+   • готовые детали: лицо (6 видов, 7 оттенков кожи), глаза (11),
+     брови (6), рот (11), нос (5), волосы (6), руки, шапки и очки,
+     эффекты (сердечки, слёзы, звёздочки, «zzz», огонь…);
+   • у каждой детали своё красивое движение: глаза моргают и
+     смотрят по сторонам, брови поднимаются, рот «говорит», рука
+     машет, сердечки улетают вверх, слёзы капают, звёзды мерцают;
+   • «Вся фигура» — общее движение (покачивание, кивок, желе…);
+   • «🎲 Случайный» — готовый персонаж одним нажатием;
+   • детали можно двигать пальцем и менять размер;
+   • стикер без фона; можно выбрать контур (белый, чёрный, цветной)
+     или фон;
+   • «Смотреть» показывает ровно то, что увидит собеседник
+============================================================ */
+
+/* длительности и точки вращения движений — общие для редактора и для чатов */
+window.__AM_DUR = {swing: 1.6, hop: 1.6, pulse: 1.6, wave: 1.2, spin: 2.4, float: 2.2, shake: .8, blink: 1.6,
+  eyeblink: 3.4, raise: 2.6, talk: .8, look: 3.2, drip: 1.8, rise: 2.4, twinkle: 1.5, nod: 2.2, bob: 1.8, jelly: 1.5, flicker: .45, tilt: 2.6, beat: 1.2};
+window.__AM_ORIGIN = {wave: '50% 100%', talk: '50% 15%', nod: '50% 95%', jelly: '50% 100%', tilt: '50% 100%', swing: '50% 10%', bob: '50% 50%'};
+
+(function memojiMaker(){
+  const S = 360;
+  const esc = (s)=> String(s == null ? '' : s).replace(/[&<>"']/g, (c)=> ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+  const b64u = (str)=>{ const by = new TextEncoder().encode(str); let s = ''; for(let i = 0; i < by.length; i += 0x8000) s += String.fromCharCode.apply(null, by.subarray(i, i + 0x8000)); return btoa(s); };
+  const hex = (c)=>{ c = c.replace('#', ''); if(c.length === 3) c = c.split('').map((x)=> x + x).join(''); return [0, 2, 4].map((i)=> parseInt(c.substr(i, 2), 16)); };
+  const shade = (c, k)=>{ const [r, g, b] = hex(c); const f = (v)=> Math.max(0, Math.min(255, Math.round(k < 0 ? v * (1 + k) : v + (255 - v) * k))); return '#' + [f(r), f(g), f(b)].map((v)=> v.toString(16).padStart(2, '0')).join(''); };
+
+  /* ---------- детали ---------- */
+  const SKINS = ['#FFD9B8', '#F5C29A', '#E0A774', '#C68642', '#8D5524', '#FFD34E', '#9EE6A8'];
+  const EYES_C = ['#5B3A1E', '#2F7DD1', '#3E9D5A', '#1B1D27', '#8A5CF6'];
+  const HAIR_C = ['#3B2416', '#1B1D27', '#B5651D', '#E8C25B', '#D9480F', '#9AA3B2', '#E64980', '#4C6EF5'];
+  const DARK = '#2B1B12';
+  const eyePair = (one)=> one(25) + one(75);
+  const PARTS = {
+    face: {name: 'Лицо', vb: '0 0 100 100', w: 250, x: 180, y: 192, m: 'none', items: {
+      round: '<circle cx="50" cy="52" r="44" fill="url(#g)" stroke="{skinD}" stroke-width="2"/>',
+      oval: '<ellipse cx="50" cy="52" rx="38" ry="46" fill="url(#g)" stroke="{skinD}" stroke-width="2"/>',
+      chubby: '<path d="M50 8C78 8 94 30 94 54C94 80 74 95 50 95C26 95 6 80 6 54C6 30 22 8 50 8Z" fill="url(#g)" stroke="{skinD}" stroke-width="2"/>',
+      cat: '<path d="M14 40L20 4L44 22Z" fill="{skinD}"/><path d="M86 40L80 4L56 22Z" fill="{skinD}"/><path d="M20 30L23 12L36 22Z" fill="#FFA8C5"/><path d="M80 30L77 12L64 22Z" fill="#FFA8C5"/><circle cx="50" cy="54" r="42" fill="url(#g)" stroke="{skinD}" stroke-width="2"/>',
+      bear: '<circle cx="18" cy="20" r="14" fill="{skinD}"/><circle cx="82" cy="20" r="14" fill="{skinD}"/><circle cx="18" cy="20" r="7" fill="#F7B5A0"/><circle cx="82" cy="20" r="7" fill="#F7B5A0"/><circle cx="50" cy="54" r="42" fill="url(#g)" stroke="{skinD}" stroke-width="2"/><ellipse cx="50" cy="70" rx="18" ry="13" fill="{skinL}" opacity=".8"/>',
+      alien: '<path d="M38 10L30 0" stroke="{skinD}" stroke-width="3"/><circle cx="29" cy="0" r="0"/><path d="M62 10L70 0" stroke="{skinD}" stroke-width="3"/><circle cx="30" cy="2" r="4" fill="{skinD}"/><circle cx="70" cy="2" r="4" fill="{skinD}"/><path d="M50 8C80 8 92 30 90 52C88 78 66 96 50 96C34 96 12 78 10 52C8 30 20 8 50 8Z" fill="url(#g)" stroke="{skinD}" stroke-width="2"/>'
+    }},
+    eyes: {name: 'Глаза', vb: '0 0 100 40', w: 140, x: 180, y: 172, m: 'eyeblink', items: {
+      normal: eyePair((x)=> `<ellipse cx="${x}" cy="20" rx="12" ry="14" fill="#fff" stroke="${DARK}" stroke-width="2"/><circle cx="${x}" cy="22" r="7.5" fill="{eye}"/><circle cx="${x}" cy="22" r="3.6" fill="#111"/><circle cx="${x + 2.5}" cy="18.5" r="2" fill="#fff"/>`),
+      big: eyePair((x)=> `<ellipse cx="${x}" cy="20" rx="15" ry="18" fill="#fff" stroke="${DARK}" stroke-width="2"/><circle cx="${x}" cy="22" r="11" fill="{eye}"/><circle cx="${x}" cy="22" r="5.5" fill="#111"/><circle cx="${x + 4}" cy="16.5" r="3.4" fill="#fff"/><circle cx="${x - 3}" cy="27" r="1.6" fill="#fff"/>`),
+      happy: eyePair((x)=> `<path d="M${x - 13} 26Q${x} 6 ${x + 13} 26" fill="none" stroke="${DARK}" stroke-width="5" stroke-linecap="round"/>`),
+      sleepy: eyePair((x)=> `<path d="M${x - 13} 18Q${x} 34 ${x + 13} 18Z" fill="#fff" stroke="${DARK}" stroke-width="2"/><circle cx="${x}" cy="23" r="5" fill="{eye}"/><path d="M${x - 14} 18H${x + 14}" stroke="${DARK}" stroke-width="3.5" stroke-linecap="round"/>`),
+      hearts: eyePair((x)=> `<path d="M${x} 34C${x - 20} 20 ${x - 16} 4 ${x} 13C${x + 16} 4 ${x + 20} 20 ${x} 34Z" fill="#FF3B5C" stroke="#C2183A" stroke-width="1.5"/><ellipse cx="${x - 5}" cy="13" rx="3" ry="2" fill="#fff" opacity=".8"/>`),
+      stars: eyePair((x)=> `<path d="M${x} 3L${x + 4.5} 14.5L${x + 16} 15L${x + 7} 22.5L${x + 10} 34L${x} 27.5L${x - 10} 34L${x - 7} 22.5L${x - 16} 15L${x - 4.5} 14.5Z" fill="#FFD23F" stroke="#E0A800" stroke-width="1.5" stroke-linejoin="round"/>`),
+      wink: `<ellipse cx="25" cy="20" rx="12" ry="14" fill="#fff" stroke="${DARK}" stroke-width="2"/><circle cx="25" cy="22" r="7.5" fill="{eye}"/><circle cx="25" cy="22" r="3.6" fill="#111"/><circle cx="27.5" cy="18.5" r="2" fill="#fff"/><path d="M62 22Q75 30 88 22" fill="none" stroke="${DARK}" stroke-width="5" stroke-linecap="round"/>`,
+      angry: eyePair((x)=> { const k = x < 50 ? 1 : -1; return `<path d="M${x - 13} ${k > 0 ? 12 : 22}L${x + 13} ${k > 0 ? 22 : 12}Q${x + 13} 36 ${x} 36Q${x - 13} 36 ${x - 13} ${k > 0 ? 12 : 22}Z" fill="#fff" stroke="${DARK}" stroke-width="2"/><circle cx="${x}" cy="27" r="5.5" fill="{eye}"/><circle cx="${x}" cy="27" r="2.6" fill="#111"/>`; }),
+      dizzy: eyePair((x)=> `<path d="M${x} 20m-2 0a2 2 0 1 1 4 0a4 4 0 1 1-8 0a6 6 0 1 1 12 0a8 8 0 1 1-16 0a10 10 0 1 1 20 0" fill="none" stroke="${DARK}" stroke-width="2.6" stroke-linecap="round"/>`),
+      cross: eyePair((x)=> `<path d="M${x - 9} 11L${x + 9} 29M${x + 9} 11L${x - 9} 29" stroke="${DARK}" stroke-width="5" stroke-linecap="round"/>`),
+      cute: eyePair((x)=> `<ellipse cx="${x}" cy="20" rx="9" ry="12" fill="#111"/><circle cx="${x + 3}" cy="15" r="3.4" fill="#fff"/><circle cx="${x - 2}" cy="25" r="1.6" fill="#fff"/>`)
+    }},
+    brows: {name: 'Брови', vb: '0 0 100 30', w: 150, x: 180, y: 130, m: 'raise', items: {
+      arc: '<path d="M12 22Q25 8 40 18M60 18Q75 8 88 22" fill="none" stroke="{hair}" stroke-width="5" stroke-linecap="round"/>',
+      angry: '<path d="M12 10L40 22M88 10L60 22" fill="none" stroke="{hair}" stroke-width="6" stroke-linecap="round"/>',
+      worried: '<path d="M12 22L40 10M88 22L60 10" fill="none" stroke="{hair}" stroke-width="5" stroke-linecap="round"/>',
+      thick: '<path d="M10 20Q24 6 42 14L41 20Q25 13 12 25Z M90 20Q76 6 58 14L59 20Q75 13 88 25Z" fill="{hair}"/>',
+      thin: '<path d="M14 18Q26 6 38 12M62 12Q74 6 86 18" fill="none" stroke="{hair}" stroke-width="2.6" stroke-linecap="round"/>',
+      uni: '<path d="M10 20Q30 6 50 16Q70 6 90 20" fill="none" stroke="{hair}" stroke-width="6" stroke-linecap="round"/>'
+    }},
+    mouth: {name: 'Рот', vb: '0 0 100 60', w: 96, x: 180, y: 240, m: 'talk', items: {
+      smile: `<path d="M18 18Q50 52 82 18" fill="none" stroke="${DARK}" stroke-width="5" stroke-linecap="round"/>`,
+      laugh: `<path d="M12 12H88Q84 56 50 56Q16 56 12 12Z" fill="#7A1F2B" stroke="${DARK}" stroke-width="2"/><path d="M16 13H84V22Q50 26 16 22Z" fill="#fff"/><ellipse cx="50" cy="45" rx="18" ry="9" fill="#FF7A93"/>`,
+      grin: `<rect x="14" y="14" width="72" height="32" rx="14" fill="#fff" stroke="${DARK}" stroke-width="3"/><path d="M14 30H86M32 14V46M50 14V46M68 14V46" stroke="${DARK}" stroke-width="2"/>`,
+      o: `<ellipse cx="50" cy="32" rx="13" ry="17" fill="#7A1F2B" stroke="${DARK}" stroke-width="2"/><ellipse cx="50" cy="40" rx="7" ry="5" fill="#FF7A93"/>`,
+      sad: `<path d="M20 44Q50 14 80 44" fill="none" stroke="${DARK}" stroke-width="5" stroke-linecap="round"/>`,
+      tongue: `<path d="M18 16Q50 44 82 16" fill="none" stroke="${DARK}" stroke-width="5" stroke-linecap="round"/><path d="M52 29Q54 54 66 50Q76 46 68 24" fill="#FF6B86" stroke="#C93556" stroke-width="2"/>`,
+      kiss: '<path d="M28 30Q38 16 50 24Q62 16 72 30Q62 46 50 42Q38 46 28 30Z" fill="#FF4D6D" stroke="#C2183A" stroke-width="2"/><path d="M31 30Q50 34 69 30" stroke="#C2183A" stroke-width="2" fill="none"/><ellipse cx="42" cy="25" rx="4" ry="2" fill="#fff" opacity=".6"/>',
+      smirk: `<path d="M24 32Q56 40 80 18" fill="none" stroke="${DARK}" stroke-width="5" stroke-linecap="round"/>`,
+      line: `<path d="M26 30H74" stroke="${DARK}" stroke-width="5" stroke-linecap="round"/>`,
+      cat: `<path d="M24 22Q37 40 50 22Q63 40 76 22" fill="none" stroke="${DARK}" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>`,
+      fangs: `<path d="M14 14H86Q80 50 50 50Q20 50 14 14Z" fill="#7A1F2B" stroke="${DARK}" stroke-width="2"/><path d="M28 15L33 30L38 15ZM62 15L67 30L72 15Z" fill="#fff"/>`
+    }},
+    nose: {name: 'Нос', vb: '0 0 40 40', w: 34, x: 180, y: 205, m: 'none', items: {
+      dot: '<ellipse cx="20" cy="22" rx="6" ry="4.5" fill="{skinD}"/>',
+      button: '<circle cx="20" cy="20" r="11" fill="{skinD}"/><circle cx="16" cy="16" r="3.5" fill="#fff" opacity=".55"/>',
+      cat: '<path d="M10 14H30L20 26Z" fill="#FF8FB1" stroke="#D6336C" stroke-width="1.5" stroke-linejoin="round"/>',
+      pig: '<ellipse cx="20" cy="20" rx="15" ry="11" fill="#FF9FB8" stroke="#E0607E" stroke-width="2"/><ellipse cx="14" cy="20" rx="3" ry="4.5" fill="#B83A5A"/><ellipse cx="26" cy="20" rx="3" ry="4.5" fill="#B83A5A"/>',
+      clown: '<circle cx="20" cy="20" r="14" fill="#FF3B5C"/><circle cx="15" cy="15" r="4" fill="#fff" opacity=".6"/>'
+    }},
+    hair: {name: 'Волосы', vb: '0 0 100 60', w: 268, x: 180, y: 124, m: 'none', items: {
+      short: '<path d="M8 56C4 22 26 4 50 4C74 4 96 22 92 56C84 40 70 30 50 30C30 30 16 40 8 56Z" fill="{hair}"/>',
+      curly: Array.from({length: 9}, (_, i)=> `<circle cx="${10 + i * 10}" cy="${26 - Math.sin(i / 8 * Math.PI) * 18}" r="13" fill="{hair}"/>`).join('') + '<path d="M6 40Q50 18 94 40V30H6Z" fill="{hair}"/>',
+      spiky: '<path d="M6 56L10 26L20 34L24 6L36 26L46 2L56 24L68 4L74 28L86 12L88 34L96 30L94 56C84 40 68 32 50 32C32 32 16 40 6 56Z" fill="{hair}"/>',
+      bangs: '<path d="M8 58C2 22 26 2 52 4C78 6 98 26 92 56C88 44 80 36 70 32C58 46 36 50 20 44C14 48 10 52 8 58Z" fill="{hair}"/>',
+      bun: '<circle cx="50" cy="10" r="12" fill="{hair}"/><path d="M8 56C4 24 26 12 50 12C74 12 96 24 92 56C84 42 70 34 50 34C30 34 16 42 8 56Z" fill="{hair}"/>',
+      long: '<path d="M6 60C2 22 26 2 50 2C74 2 98 22 94 60L94 60C90 46 80 36 70 34C66 36 58 38 50 38C42 38 34 36 30 34C20 36 10 46 6 60Z" fill="{hair}"/><path d="M4 40C0 50 2 58 8 60L14 44Z M96 40C100 50 98 58 92 60L86 44Z" fill="{hair}"/>'
+    }},
+    blush: {name: 'Румянец', vb: '0 0 100 30', w: 190, x: 180, y: 215, m: 'pulse', items: {
+      pink: '<ellipse cx="18" cy="15" rx="14" ry="8" fill="#FF7A9A" opacity=".55"/><ellipse cx="82" cy="15" rx="14" ry="8" fill="#FF7A9A" opacity=".55"/>',
+      lines: '<path d="M8 10L14 20M16 10L22 20M24 10L30 20M70 10L76 20M78 10L84 20M86 10L92 20" stroke="#FF4D6D" stroke-width="3" stroke-linecap="round"/>'
+    }}
+  };
+  /* 3D-детали (объёмные картинки) */
+  const EMO = {
+    hands: {name: 'Руки', list: ['👋', '👍', '✌️', '🫶', '✊', '👉', '🤘', '👏', '🙌', '🤙', '🤞', '👌'], w: 110, x: 285, y: 290, m: 'wave'},
+    hats: {name: 'Шапки и очки', list: ['🎩', '👑', '🧢', '🎓', '🎀', '🌸', '🕶️', '👓', '🎧', '🥽'], w: 150, x: 180, y: 72, m: 'none'},
+    fx: {name: 'Эффекты', list: ['❤️', '💕', '✨', '⭐', '💧', '💦', '💤', '💢', '🔥', '🎉', '💫', '💯', '💥', '🌈'], w: 70, x: 300, y: 70, m: 'rise'}
+  };
+  const FX_MOT = {'❤️': 'rise', '💕': 'rise', '✨': 'twinkle', '⭐': 'twinkle', '💧': 'drip', '💦': 'drip', '💤': 'rise', '💢': 'pulse', '🔥': 'flicker', '🎉': 'jelly', '💫': 'spin', '💯': 'beat', '💥': 'pulse', '🌈': 'float'};
+  const HAT_MOT = {'👑': 'tilt', '🎩': 'tilt', '🧢': 'tilt', '🎓': 'tilt', '🎀': 'pulse', '🌸': 'twinkle', '🕶️': 'none', '👓': 'none', '🎧': 'none', '🥽': 'none'};
+  const HAT_POS = {'🕶️': [180, 172, 170], '👓': [180, 172, 170], '🥽': [180, 168, 180], '🎧': [180, 150, 290], '🎀': [250, 90, 90], '🌸': [255, 95, 80]};
+
+  const MOT = [['none', '⏸', 'Стоит'], ['eyeblink', '😉', 'Моргает'], ['look', '👀', 'Смотрит'], ['raise', '🤨', 'Вверх-вниз'], ['talk', '🗣', 'Говорит'], ['wave', '👋', 'Машет'], ['swing', '〰️', 'Качается'], ['tilt', '↩️', 'Наклон'], ['hop', '⬆️', 'Прыгает'], ['bob', '🎈', 'Плавает'], ['pulse', '💓', 'Пульсирует'], ['beat', '❤️', 'Сердце'], ['jelly', '🍮', 'Желе'], ['rise', '🫧', 'Улетает'], ['drip', '💧', 'Капает'], ['twinkle', '✨', 'Мерцает'], ['flicker', '🔥', 'Пламя'], ['spin', '🔄', 'Крутится'], ['float', '☁️', 'Парит'], ['shake', '🫨', 'Дрожит'], ['blink', '💡', 'Мигает']];
+  const ALL_MOT = [['none', 'Нет'], ['bob', 'Покачивание'], ['nod', 'Кивает'], ['jelly', 'Желе'], ['hop', 'Прыжки'], ['tilt', 'Наклоны']];
+  const COLORS = ['#111318', '#ffffff', '#ff3b5c', '#ff8a00', '#ffd23f', '#2fd36f', '#1fb8ff', '#4c6ef5', '#9b5cff', '#ff6fb0', '#8b5a2b', '#9aa3b2'];
+  const OUTLINES = [['none', 'Без контура'], ['#ffffff', 'Белый'], ['#111318', 'Чёрный'], ['color', 'Цветной']];
+
+  function svgFor(cat, id, col){
+    const P = PARTS[cat]; let body = P.items[id] || '';
+    const skin = col.skin, eye = col.eye, hair = col.hair;
+    body = body.replace(/\{skinD\}/g, shade(skin, -.2)).replace(/\{skinL\}/g, shade(skin, .35)).replace(/\{skin\}/g, skin).replace(/\{eye\}/g, eye).replace(/\{hair\}/g, hair);
+    const defs = `<defs><radialGradient id="g" cx="38%" cy="32%" r="75%"><stop offset="0" stop-color="${shade(skin, .3)}"/><stop offset=".6" stop-color="${skin}"/><stop offset="1" stop-color="${shade(skin, -.12)}"/></radialGradient></defs>`;
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${P.vb}">${defs}${body}</svg>`;
+  }
+  const svgUrl = (svg)=> 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+  const loadImg = (src, cors)=> new Promise((res, rej)=>{ const im = new Image(); if(cors) im.crossOrigin = 'anonymous'; im.onload = ()=> res(im); im.onerror = rej; im.src = src; });
+
+  /* ---------- контур и фон ---------- */
+  function outlined(srcCanvas, color, px){
+    const w = srcCanvas.width + px * 2, h = srcCanvas.height + px * 2;
+    const c = document.createElement('canvas'); c.width = w; c.height = h; const g = c.getContext('2d');
+    const sil = document.createElement('canvas'); sil.width = w; sil.height = h; const sg = sil.getContext('2d');
+    for(let a = 0; a < 24; a++){ const t = a / 24 * Math.PI * 2; sg.drawImage(srcCanvas, px + Math.cos(t) * px, px + Math.sin(t) * px); }
+    sg.globalCompositeOperation = 'source-in'; sg.fillStyle = color; sg.fillRect(0, 0, w, h);
+    g.drawImage(sil, 0, 0); g.drawImage(srcCanvas, px, px);
+    return c;
+  }
+
+  window.openLiveStickerMaker = function(done){
+    const ov = document.createElement('div'); ov.className = 'lsm';
+    ov.innerHTML = `<div class="lsm-card">
+      <div class="lsm-head"><button type="button" data-a="x">✕</button><b>Живой мемоджи</b><button type="button" data-a="play" class="lsm-play">▶ Смотреть</button><button type="button" data-a="ok" class="lsm-ok">Готово</button></div>
+      <div class="lsm-stage" id="lsm-stage"><div class="ast lsm-prev" id="lsm-prev" style="display:none"></div></div>
+      <div class="lsm-tools" data-no-swipe>
+        <button type="button" data-tool="parts" class="on">🧩 Детали</button><button type="button" data-a="random">🎲 Случайный</button>
+        <button type="button" data-tool="move">✋ Двигать</button><button type="button" data-tool="pen">✏️ Кисть</button><button type="button" data-tool="erase">🧽 Ластик</button>
+        <button type="button" data-a="photo">🖼 Фото</button><button type="button" data-a="undo">↶</button><button type="button" data-a="del">🗑 Часть</button></div>
+      <div id="lsm-parts">
+        <div class="lsm-pcats" id="lsm-pcats" data-no-swipe></div>
+        <div class="lsm-pgrid" id="lsm-pgrid" data-no-swipe></div>
+        <div class="lsm-prow" id="lsm-tones" data-no-swipe></div>
+      </div>
+      <div id="lsm-draw" style="display:none">
+        <div class="lsm-row"><span>Толщина</span><input type="range" id="lsm-w" min="2" max="40" value="10"></div>
+        <div class="lsm-colors" id="lsm-colors" data-no-swipe>${COLORS.map((c, i)=> `<button type="button" data-col="${c}" class="${i ? '' : 'on'}" style="background:${c}"></button>`).join('')}</div>
+      </div>
+      <div class="lsm-l">Детали — нажмите, чтобы выбрать</div>
+      <div class="lsm-layers" id="lsm-layers" data-no-swipe></div>
+      <div class="lsm-row" id="lsm-size-row"><span>Размер</span><input type="range" id="lsm-size" min="0.3" max="2.5" step="0.05" value="1"></div>
+      <div class="lsm-l">Как двигается выбранная деталь</div>
+      <div class="lsm-mot" id="lsm-mot" data-no-swipe>${MOT.map(([k, i, n])=> `<button type="button" data-mot="${k}"><i>${i}</i><span>${n}</span></button>`).join('')}</div>
+      <div class="lsm-row"><span>Скорость</span><input type="range" id="lsm-sp" min="0.4" max="2.5" step="0.1" value="1"></div>
+      <div class="lsm-l">Вся фигура</div>
+      <div class="lsm-chips" id="lsm-all" data-no-swipe>${ALL_MOT.map(([k, n], i)=> `<button type="button" data-all="${k}" class="${i ? '' : 'on'}">${n}</button>`).join('')}</div>
+      <div class="lsm-l">Контур (стикер всегда без фона)</div>
+      <div class="lsm-chips" id="lsm-out" data-no-swipe>${OUTLINES.map(([k, n], i)=> `<button type="button" data-out="${k}" class="${i === 1 ? 'on' : ''}">${k.startsWith('#') ? `<i style="background:${k}"></i>` : ''}${n}</button>`).join('')}</div>
+      <div class="lsm-tip">Выбирайте детали: лицо, глаза, брови, рот… Каждая сразу двигается по-своему — нажмите «▶ Смотреть». Деталь можно передвинуть пальцем (✋ Двигать) и поменять размер.</div>
+    </div>`;
+    document.body.appendChild(ov); requestAnimationFrame(()=> ov.classList.add('on'));
+    const $ = (q)=> ov.querySelector(q), stage = $('#lsm-stage'), prev = $('#lsm-prev');
+    const layers = []; let cur = -1, tool = 'parts', color = COLORS[0], width = 10, playing = false, allMot = 'none', outline = '#ffffff', pcat = 'face';
+    const col = {skin: SKINS[0], eye: EYES_C[0], hair: HAIR_C[0]};
+    const hist = [];
+
+    function newLayer(name){
+      const cv = document.createElement('canvas'); cv.width = S; cv.height = S; cv.className = 'lsm-cv';
+      stage.insertBefore(cv, prev);
+      const L = {cv, g: cv.getContext('2d'), m: 'none', sp: 1, name, part: null};
+      layers.push(L); cur = layers.length - 1; return L;
+    }
+    async function renderPart(L){
+      const p = L.part; if(!p) return;
+      let im;
+      try{
+        if(p.svg) im = await loadImg(svgUrl(svgFor(p.cat, p.id, col)));
+        else im = await loadImg(window.emo3dUrl ? emo3dUrl(p.e) : '', true);
+      }catch(e){ im = null; }
+      const w = p.w * p.s, ratio = im ? im.naturalHeight / im.naturalWidth || 1 : 1, h = w * ratio;
+      L.g.clearRect(0, 0, S, S);
+      if(im) L.g.drawImage(im, p.x - w / 2, p.y - h / 2, w, h);
+      else { L.g.font = (w * .8) + 'px sans-serif'; L.g.textAlign = 'center'; L.g.textBaseline = 'middle'; L.g.fillText(p.e || '?', p.x, p.y); }
+    }
+    /* одна деталь каждого вида лица (лицо, глаза…) — заменяется, а не добавляется */
+    async function addPart(spec){
+      if(playing) stopPlay();
+      let L = spec.svg && spec.cat !== 'blush' ? layers.find((x)=> x.part && x.part.cat === spec.cat) : null;
+      if(L){ L.part = Object.assign({}, L.part, {id: spec.id}); }
+      else {
+        if(layers.length >= 16){ toast('Не больше 16 деталей'); return; }
+        L = newLayer(spec.name); L.part = spec; L.m = spec.m || 'none';
+        /* порядок: лицо — снизу, волосы и шапки — сверху */
+        const order = {face: 0, blush: 1, nose: 2, mouth: 3, eyes: 4, brows: 5, hair: 6, hats: 7, hands: 8, fx: 9};
+        layers.sort((a, b)=> (order[a.part ? a.part.cat : ''] ?? 5) - (order[b.part ? b.part.cat : ''] ?? 5));
+        layers.forEach((x)=> stage.insertBefore(x.cv, prev));
+        cur = layers.indexOf(L);
+      }
+      await renderPart(L);
+      cur = layers.indexOf(L);
+      paintUi();
+    }
+    function partName(L){
+      if(!L.part) return L.name || 'Рисунок';
+      if(L.part.svg) return PARTS[L.part.cat].name;
+      return L.part.e;
+    }
+    function paintUi(){
+      $('#lsm-layers').innerHTML = layers.map((L, i)=> `<button type="button" data-ly="${i}" class="${i === cur ? 'on' : ''}"><b>${esc(partName(L))}</b><small>${(MOT.find((m)=> m[0] === L.m) || MOT[0])[2]}</small></button>`).join('') + '<button type="button" data-a="add" class="add">＋ Рисунок</button>';
+      const L = layers[cur];
+      ov.querySelectorAll('[data-mot]').forEach((b)=> b.classList.toggle('on', !!L && b.dataset.mot === L.m));
+      $('#lsm-sp').value = L ? L.sp : 1;
+      $('#lsm-size-row').style.display = L && L.part ? '' : 'none';
+      if(L && L.part) $('#lsm-size').value = L.part.s;
+      layers.forEach((x, i)=> x.cv.classList.toggle('dim', i !== cur && !playing && tool !== 'parts'));
+      ov.querySelectorAll('[data-all]').forEach((b)=> b.classList.toggle('on', b.dataset.all === allMot));
+      ov.querySelectorAll('[data-out]').forEach((b)=> b.classList.toggle('on', b.dataset.out === outline));
+    }
+    /* ---------- каталог деталей ---------- */
+    const CATS = [...Object.keys(PARTS).map((k)=> [k, PARTS[k].name]), ...Object.keys(EMO).map((k)=> [k, EMO[k].name])];
+    function paintParts(){
+      $('#lsm-pcats').innerHTML = CATS.map(([k, n])=> `<button type="button" data-pcat="${k}" class="${k === pcat ? 'on' : ''}">${n}</button>`).join('');
+      let h = '';
+      if(PARTS[pcat]){
+        const P = PARTS[pcat];
+        h = Object.keys(P.items).map((id)=> `<button type="button" data-part="${pcat}:${id}"><img src="${svgUrl(svgFor(pcat, id, col))}" alt=""></button>`).join('');
+      } else {
+        h = EMO[pcat].list.map((e)=> `<button type="button" data-emo="${pcat}:${e}"><img src="${window.emo3dUrl ? emo3dUrl(e) : ''}" alt="${esc(e)}"></button>`).join('');
+      }
+      $('#lsm-pgrid').innerHTML = h;
+      let tones = '';
+      if(pcat === 'face' || pcat === 'nose') tones = '<span>Кожа</span>' + SKINS.map((c)=> `<button type="button" data-skin="${c}" class="${c === col.skin ? 'on' : ''}" style="background:${c}"></button>`).join('');
+      else if(pcat === 'eyes') tones = '<span>Глаза</span>' + EYES_C.map((c)=> `<button type="button" data-eye="${c}" class="${c === col.eye ? 'on' : ''}" style="background:${c}"></button>`).join('');
+      else if(pcat === 'brows' || pcat === 'hair') tones = '<span>Волосы</span>' + HAIR_C.map((c)=> `<button type="button" data-hairc="${c}" class="${c === col.hair ? 'on' : ''}" style="background:${c}"></button>`).join('');
+      $('#lsm-tones').innerHTML = tones;
+    }
+    async function recolor(){ for(const L of layers) if(L.part && L.part.svg) await renderPart(L); paintParts(); }
+
+    function specSvg(cat, id){ const P = PARTS[cat]; return {svg: true, cat, id, x: P.x, y: P.y, w: P.w, s: 1, m: P.m, name: P.name}; }
+    function specEmo(cat, e){
+      const C = EMO[cat]; let x = C.x, y = C.y, w = C.w, m = C.m;
+      if(cat === 'fx'){ m = FX_MOT[e] || 'rise'; const n = layers.filter((L)=> L.part && L.part.cat === 'fx').length; const spots = [[300, 70], [70, 80], [320, 170], [50, 200], [290, 40]]; [x, y] = spots[n % spots.length]; }
+      if(cat === 'hats'){ m = HAT_MOT[e] || 'none'; if(HAT_POS[e]) [x, y, w] = HAT_POS[e]; }
+      if(cat === 'hands'){ const n = layers.filter((L)=> L.part && L.part.cat === 'hands').length; if(n % 2){ x = 75; } }
+      return {svg: false, cat, e, x, y, w, s: 1, m, name: C.name};
+    }
+    async function randomChar(){
+      if(playing) stopPlay();
+      layers.splice(0).forEach((L)=> L.cv.remove()); cur = -1;
+      const pick = (o)=> { const k = Object.keys(o); return k[Math.floor(Math.random() * k.length)]; };
+      const pickA = (a)=> a[Math.floor(Math.random() * a.length)];
+      col.skin = pickA(SKINS.slice(0, 6)); col.eye = pickA(EYES_C); col.hair = pickA(HAIR_C);
+      await addPart(specSvg('face', pick(PARTS.face.items)));
+      if(Math.random() < .7) await addPart(specSvg('hair', pick(PARTS.hair.items)));
+      await addPart(specSvg('eyes', pickA(['normal', 'big', 'happy', 'hearts', 'stars', 'wink', 'cute'])));
+      await addPart(specSvg('brows', pick(PARTS.brows.items)));
+      await addPart(specSvg('nose', pickA(['dot', 'button', 'cat'])));
+      await addPart(specSvg('mouth', pickA(['smile', 'laugh', 'tongue', 'grin', 'o', 'cat', 'kiss'])));
+      if(Math.random() < .6) await addPart(specSvg('blush', 'pink'));
+      if(Math.random() < .7) await addPart(specEmo('hands', pickA(EMO.hands.list)));
+      if(Math.random() < .5) await addPart(specEmo('hats', pickA(['🎩', '👑', '🧢', '🎀', '🌸', '🕶️'])));
+      await addPart(specEmo('fx', pickA(['❤️', '✨', '💕', '⭐', '💫'])));
+      allMot = pickA(['bob', 'nod', 'jelly', 'none']);
+      paintParts(); paintUi(); startPlay();
+    }
+
+    /* ---------- рисование и перетаскивание ---------- */
+    const pos = (ev)=>{ const r = stage.getBoundingClientRect(); return {x: (ev.clientX - r.left) / r.width * S, y: (ev.clientY - r.top) / r.height * S}; };
+    let drawing = null, dragging = null;
+    function hitLayer(p){
+      for(let i = layers.length - 1; i >= 0; i--){ const d = layers[i].g.getImageData(Math.max(0, Math.min(S - 1, p.x | 0)), Math.max(0, Math.min(S - 1, p.y | 0)), 1, 1).data; if(d[3] > 20) return i; }
+      return -1;
+    }
+    stage.addEventListener('pointerdown', (ev)=>{
+      if(playing) stopPlay();
+      const p = pos(ev);
+      if(tool === 'move' || tool === 'parts'){
+        const i = hitLayer(p); if(i < 0) return;
+        cur = i; paintUi();
+        const L = layers[i]; stage.setPointerCapture(ev.pointerId);
+        hist.push({i, d: L.g.getImageData(0, 0, S, S), part: L.part ? Object.assign({}, L.part) : null}); if(hist.length > 30) hist.shift();
+        dragging = {L, start: p, ox: L.part ? L.part.x : 0, oy: L.part ? L.part.y : 0, snap: L.part ? null : L.g.getImageData(0, 0, S, S)};
+        return;
+      }
+      let L = layers[cur];
+      if(!L || L.part){ L = newLayer('Рисунок'); L.m = 'none'; paintUi(); }
+      hist.push({i: cur, d: L.g.getImageData(0, 0, S, S)}); if(hist.length > 30) hist.shift();
+      stage.setPointerCapture(ev.pointerId);
+      drawing = {last: p};
+      const g = L.g; g.lineCap = 'round'; g.lineJoin = 'round'; g.lineWidth = width;
+      g.globalCompositeOperation = tool === 'erase' ? 'destination-out' : 'source-over'; g.strokeStyle = color; g.fillStyle = color;
+      g.beginPath(); g.arc(p.x, p.y, width / 2, 0, Math.PI * 2); g.fill();
+    });
+    stage.addEventListener('pointermove', (ev)=>{
+      const p = pos(ev);
+      if(dragging){
+        const L = dragging.L, dx = p.x - dragging.start.x, dy = p.y - dragging.start.y;
+        if(L.part){ L.part.x = dragging.ox + dx; L.part.y = dragging.oy + dy; renderPart(L); }
+        else { L.g.clearRect(0, 0, S, S); L.g.putImageData(dragging.snap, Math.round(dx), Math.round(dy)); }
+        return;
+      }
+      if(!drawing) return; const g = layers[cur].g, l = drawing.last;
+      g.beginPath(); g.moveTo(l.x, l.y); g.quadraticCurveTo(l.x, l.y, (l.x + p.x) / 2, (l.y + p.y) / 2); g.lineTo(p.x, p.y); g.stroke();
+      drawing.last = p;
+    });
+    const end = ()=>{ if(drawing){ drawing = null; const L = layers[cur]; if(L) L.g.globalCompositeOperation = 'source-over'; } dragging = null; };
+    stage.addEventListener('pointerup', end); stage.addEventListener('pointercancel', end);
+
+    function bbox(g){
+      const d = g.getImageData(0, 0, S, S).data; let x0 = S, y0 = S, x1 = -1, y1 = -1;
+      for(let y = 0; y < S; y++) for(let x = 0; x < S; x++) if(d[(y * S + x) * 4 + 3] > 8){ if(x < x0) x0 = x; if(x > x1) x1 = x; if(y < y0) y0 = y; if(y > y1) y1 = y; }
+      if(x1 < 0) return null; return {x: Math.max(0, x0 - 2), y: Math.max(0, y0 - 2), w: Math.min(S, x1 + 3) - Math.max(0, x0 - 2), h: Math.min(S, y1 + 3) - Math.max(0, y0 - 2)};
+    }
+    /* то, что уйдёт в стикер: детали по отдельности + контур */
+    const MOVING_OUT = new Set(['wave', 'rise', 'drip', 'float', 'hop', 'spin', 'twinkle', 'flicker', 'swing', 'tilt', 'shake']);
+    function build(){
+      const out = [];
+      const ocol = outline === 'color' ? color : outline;
+      const OW = 9;
+      /* контур — общий силуэт всех неподвижных деталей (снизу), а у «улетающих» — свой */
+      if(ocol !== 'none'){
+        const u = document.createElement('canvas'); u.width = S; u.height = S; const ug = u.getContext('2d');
+        let any = false;
+        layers.forEach((L)=>{ if(!MOVING_OUT.has(L.m)){ ug.drawImage(L.cv, 0, 0); any = true; } });
+        if(any){
+          const b = bbox(ug);
+          if(b){
+            const c = document.createElement('canvas'); c.width = b.w; c.height = b.h; c.getContext('2d').drawImage(u, b.x, b.y, b.w, b.h, 0, 0, b.w, b.h);
+            const o = outlined(c, ocol, OW);
+            const sil = document.createElement('canvas'); sil.width = o.width; sil.height = o.height; const sg = sil.getContext('2d');
+            sg.drawImage(o, 0, 0); sg.globalCompositeOperation = 'destination-out'; sg.drawImage(c, OW, OW);
+            out.push({src: sil.toDataURL('image/webp', .9), x: b.x - OW, y: b.y - OW, w: sil.width, h: sil.height, m: 'none', sp: 1, o: ''});
+          }
+        }
+      }
+      for(const L of layers){
+        const b = bbox(L.g); if(!b) continue;
+        let c = document.createElement('canvas'); c.width = b.w; c.height = b.h; c.getContext('2d').drawImage(L.cv, b.x, b.y, b.w, b.h, 0, 0, b.w, b.h);
+        let x = b.x, y = b.y;
+        if(ocol !== 'none' && MOVING_OUT.has(L.m)){ c = outlined(c, ocol, OW); x -= OW; y -= OW; }
+        out.push({src: c.toDataURL('image/webp', .9), x, y, w: c.width, h: c.height, m: L.m, sp: L.sp, o: (window.__AM_ORIGIN || {})[L.m] || ''});
+      }
+      return out;
+    }
+    function startPlay(){
+      const out = build(); if(!out.length) return;
+      playing = true; $('.lsm-play').textContent = '⏸ Стоп';
+      layers.forEach((L)=> L.cv.style.visibility = 'hidden');
+      prev.style.display = '';
+      window.__paintAnimSticker(prev, {size: S, layers: out, all: allMot});
+      prev.classList.add('lsm-prev'); prev.id = 'lsm-prev';
+    }
+    function stopPlay(){ playing = false; $('.lsm-play').textContent = '▶ Смотреть'; prev.style.display = 'none'; prev.innerHTML = ''; layers.forEach((L)=> L.cv.style.visibility = ''); paintUi(); }
+    async function finish(){
+      const out = build();
+      if(!out.length){ toast('Добавьте детали или нарисуйте что-нибудь'); return; }
+      /* обложка — все детали вместе (с контуром), без фона */
+      const flat = document.createElement('canvas'); flat.width = S; flat.height = S; const fg = flat.getContext('2d');
+      for(const L of out){ try{ const im = await loadImg(L.src); fg.drawImage(im, L.x, L.y, L.w, L.h); }catch(e){} }
+      const obj = {v: 2, size: S, e: '🙂', layers: out, all: allMot, flat: flat.toDataURL('image/webp', .9)};
+      const btn = $('.lsm-ok'); btn.disabled = true; btn.textContent = 'Сохраняю…';
+      try{
+        await window.__addMySticker('data:application/json;base64,' + b64u(JSON.stringify(obj)), '🙂');
+        toast('Живой мемоджи сохранён в «Мои стикеры»'); try{ haptic('buttons', [10, 30, 10]); }catch(e){}
+        close(); done && done();
+      }catch(e){ console.warn('memoji', e); toast('Не удалось сохранить'); btn.disabled = false; btn.textContent = 'Готово'; }
+    }
+    const close = ()=>{ ov.classList.remove('on'); setTimeout(()=> ov.remove(), 220); };
+    function setTool(t){
+      tool = t;
+      ov.querySelectorAll('[data-tool]').forEach((b)=> b.classList.toggle('on', b.dataset.tool === t));
+      $('#lsm-parts').style.display = t === 'parts' ? '' : 'none';
+      $('#lsm-draw').style.display = (t === 'pen' || t === 'erase') ? '' : 'none';
+      paintUi();
+    }
+    ov.addEventListener('click', async (ev)=>{
+      const t = ev.target;
+      const ly = t.closest('[data-ly]'); if(ly){ cur = +ly.dataset.ly; if(playing) stopPlay(); paintUi(); return; }
+      const mo = t.closest('[data-mot]'); if(mo){ const L = layers[cur]; if(!L) return; L.m = mo.dataset.mot; paintUi(); if(playing) startPlay(); try{ haptic('buttons', 5); }catch(e){} return; }
+      const al = t.closest('[data-all]'); if(al){ allMot = al.dataset.all; paintUi(); if(playing) startPlay(); return; }
+      const ou = t.closest('[data-out]'); if(ou){ outline = ou.dataset.out; paintUi(); if(playing) startPlay(); return; }
+      const tl = t.closest('[data-tool]'); if(tl){ if(playing) stopPlay(); setTool(tl.dataset.tool); return; }
+      const pc = t.closest('[data-pcat]'); if(pc){ pcat = pc.dataset.pcat; paintParts(); return; }
+      const pa = t.closest('[data-part]'); if(pa){ const [c, id] = pa.dataset.part.split(':'); await addPart(specSvg(c, id)); return; }
+      const em = t.closest('[data-emo]'); if(em){ const i = em.dataset.emo.indexOf(':'); await addPart(specEmo(em.dataset.emo.slice(0, i), em.dataset.emo.slice(i + 1))); return; }
+      const sk = t.closest('[data-skin]'); if(sk){ col.skin = sk.dataset.skin; await recolor(); return; }
+      const ey = t.closest('[data-eye]'); if(ey){ col.eye = ey.dataset.eye; await recolor(); return; }
+      const hc = t.closest('[data-hairc]'); if(hc){ col.hair = hc.dataset.hairc; await recolor(); return; }
+      const co = t.closest('[data-col]'); if(co){ color = co.dataset.col; ov.querySelectorAll('[data-col]').forEach((b)=> b.classList.toggle('on', b === co)); if(tool === 'erase') setTool('pen'); return; }
+      const a = t.closest('[data-a]'); if(!a) return;
+      const k = a.dataset.a;
+      if(k === 'x'){ close(); return; }
+      if(k === 'add'){ if(playing) stopPlay(); newLayer('Рисунок'); setTool('pen'); return; }
+      if(k === 'random'){ await randomChar(); return; }
+      if(k === 'play'){ playing ? stopPlay() : startPlay(); return; }
+      if(k === 'ok'){ if(playing) stopPlay(); finish(); return; }
+      if(k === 'undo'){ const h = hist.pop(); if(h && layers[h.i]){ layers[h.i].g.putImageData(h.d, 0, 0); if(h.part) layers[h.i].part = h.part; } return; }
+      if(k === 'del'){ const L = layers[cur]; if(!L) return; if(playing) stopPlay(); L.cv.remove(); layers.splice(cur, 1); cur = Math.min(cur, layers.length - 1); paintUi(); return; }
+      if(k === 'photo'){
+        const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/*';
+        inp.onchange = ()=>{ const f = inp.files && inp.files[0]; if(!f) return; const u = URL.createObjectURL(f); const im = new Image(); im.onload = ()=>{ const L = newLayer('Фото'); const k2 = Math.min(S / im.width, S / im.height); L.g.drawImage(im, (S - im.width * k2) / 2, (S - im.height * k2) / 2, im.width * k2, im.height * k2); URL.revokeObjectURL(u); paintUi(); }; im.src = u; };
+        inp.click(); return;
+      }
+    });
+    ov.addEventListener('input', (ev)=>{
+      const L = layers[cur];
+      if(ev.target.id === 'lsm-w') width = +ev.target.value;
+      if(ev.target.id === 'lsm-sp' && L){ L.sp = +ev.target.value; if(playing) startPlay(); }
+      if(ev.target.id === 'lsm-size' && L && L.part){ L.part.s = +ev.target.value; renderPart(L); }
+    });
+    paintParts(); setTool('parts');
+    /* сразу готовый персонаж, чтобы было с чего начать */
+    randomChar();
+  };
+})();
+
+/* ---------- в панели стикеров все живые сразу двигаются ---------- */
+(function panelAlwaysAlive(){
+  /* пока живой смайлик раскладывается на кадры, играет обычная живая картинка */
+  if(window.LiveAnim && LiveAnim.attach && !LiveAnim.__fast){
+    const orig = LiveAnim.attach;
+    LiveAnim.attach = function(img, e, size){
+      let done = false;
+      const tmr = setTimeout(()=>{ if(!done && img && img.isConnected){ try{ const u = window.animEmojiUrl && animEmojiUrl(e); if(u) img.src = u; }catch(er){} } }, 120);
+      const p = orig.call(this, img, e, size);
+      Promise.resolve(p).then(()=>{ done = true; clearTimeout(tmr); }, ()=>{ done = true; });
+      return p;
+    };
+    LiveAnim.__fast = true;
+  }
+  /* 3D-стикеры, появившиеся позже (новые разделы, «Недавние»), тоже двигаются */
+  const io = new IntersectionObserver((ents)=> ents.forEach((en)=> en.target.classList.toggle('mv-on', en.isIntersecting)), {rootMargin: '60px'});
+  let t = 0;
+  new MutationObserver(()=>{
+    if(t) return;
+    t = setTimeout(()=>{ t = 0; document.querySelectorAll('#emoji-panel img[class*="mv-"]:not([data-mvo])').forEach((i)=>{ i.dataset.mvo = '1'; io.observe(i); }); }, 200);
+  }).observe(document.body, {childList: true, subtree: true});
 })();

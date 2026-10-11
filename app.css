@@ -219,3 +219,46 @@
   .lsm-stamps button.on{border-color:var(--accent);}
   .lsm-stamps img{width:100%;height:100%;object-fit:contain;}
   .lsm-tip{font-size:12px;color:var(--text-muted);line-height:1.35;}
+
+/* ===== ROUND 194: живой мемоджи — детали, движения, контур ===== */
+.am-eyeblink{animation:amEyeBlink 3.4s ease-in-out infinite;}
+.am-raise{animation:amRaise 2.6s ease-in-out infinite;}
+.am-talk{animation:amTalk .8s ease-in-out infinite;transform-origin:50% 15%;}
+.am-look{animation:amLook 3.2s ease-in-out infinite;}
+.am-drip{animation:amDrip 1.8s ease-in infinite;}
+.am-rise{animation:amRise 2.4s ease-out infinite;}
+.am-twinkle{animation:amTwinkle 1.5s ease-in-out infinite;}
+.am-nod{animation:amNod 2.2s ease-in-out infinite;transform-origin:50% 95%;}
+.am-bob{animation:amBob 1.8s ease-in-out infinite;}
+.am-jelly{animation:amJelly 1.5s ease-in-out infinite;transform-origin:50% 100%;}
+.am-flicker{animation:amFlicker .45s ease-in-out infinite alternate;transform-origin:50% 100%;}
+.am-tilt{animation:amTilt 2.6s ease-in-out infinite;transform-origin:50% 100%;}
+.am-beat{animation:amBeat 1.2s ease-in-out infinite;}
+@keyframes amEyeBlink{0%,42%,50%,88%,94%,100%{transform:scaleY(1)}46%,91%{transform:scaleY(.08)}}
+@keyframes amRaise{0%,55%,100%{transform:translateY(0)}65%,85%{transform:translateY(-22%)}}
+@keyframes amTalk{0%,100%{transform:scaleY(1)}50%{transform:scaleY(.55)}}
+@keyframes amLook{0%,25%,100%{transform:translateX(0)}35%,50%{transform:translateX(-5%)}60%,78%{transform:translateX(5%)}}
+@keyframes amDrip{0%{transform:translateY(-15%);opacity:0}12%{opacity:1}100%{transform:translateY(120%);opacity:0}}
+@keyframes amRise{0%{transform:translateY(25%) scale(.6);opacity:0}18%{opacity:1}100%{transform:translateY(-110%) scale(1.1);opacity:0}}
+@keyframes amTwinkle{0%,100%{transform:scale(.72) rotate(0);opacity:.65}50%{transform:scale(1.15) rotate(18deg);opacity:1}}
+@keyframes amNod{0%,100%{transform:rotate(-4deg)}50%{transform:rotate(4deg)}}
+@keyframes amBob{0%,100%{transform:translateY(0)}50%{transform:translateY(-4%)}}
+@keyframes amJelly{0%,100%{transform:scale(1,1)}25%{transform:scale(1.06,.94)}50%{transform:scale(.96,1.05)}75%{transform:scale(1.03,.97)}}
+@keyframes amFlicker{from{transform:scale(1) rotate(-4deg)}to{transform:scale(1.08,1.14) rotate(4deg)}}
+@keyframes amTilt{0%,100%{transform:rotate(-7deg)}50%{transform:rotate(7deg)}}
+@keyframes amBeat{0%,100%{transform:scale(1)}15%{transform:scale(1.16)}30%{transform:scale(1)}45%{transform:scale(1.12)}}
+
+.lsm-prev{position:absolute!important;inset:0;width:100%!important;height:100%;z-index:3;}
+.lsm-pcats,.lsm-chips,.lsm-prow{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;padding-bottom:2px;align-items:center;}
+.lsm-pcats button,.lsm-chips button{flex:0 0 auto;padding:7px 12px;border-radius:14px;background:var(--bubble-in);font-weight:700;color:var(--text);font-size:13px;display:flex;align-items:center;gap:6px;border:2px solid transparent;}
+.lsm-pcats button.on,.lsm-chips button.on{border-color:var(--accent);background:var(--accent-soft);color:var(--accent);}
+.lsm-chips button i{width:14px;height:14px;border-radius:50%;box-shadow:inset 0 0 0 1px rgba(0,0,0,.25);}
+.lsm-pgrid{display:grid;grid-auto-flow:column;grid-template-rows:repeat(2,60px);grid-auto-columns:60px;gap:6px;overflow-x:auto;scrollbar-width:none;padding:6px 0 2px;}
+.lsm-pgrid button{border-radius:14px;background:var(--bubble-in);padding:6px;display:flex;align-items:center;justify-content:center;}
+.lsm-pgrid button:active{transform:scale(.94);}
+.lsm-pgrid img{width:100%;height:100%;object-fit:contain;}
+.lsm-prow span{font-size:12.5px;color:var(--text-muted);font-weight:700;margin-right:2px;}
+.lsm-prow button{flex:0 0 auto;width:28px;height:28px;border-radius:50%;box-shadow:inset 0 0 0 1px rgba(0,0,0,.18);}
+.lsm-prow button.on{box-shadow:0 0 0 3px var(--accent);}
+.lsm-card{display:flex;flex-direction:column;gap:8px;}
+.lsm-card > *{flex-shrink:0;}
