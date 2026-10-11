@@ -3,7 +3,7 @@
    • Библиотеки Firebase и каталоги музыки/радио кэшируются — не скачиваются каждый раз заново.
    • Показывает системные уведомления.
    Музыкальные потоки и данные Firestore идут напрямую (у Firestore свой кэш на устройстве). */
-const CACHE = 'chat-shell-v3';
+const CACHE = 'chat-shell-v4';
 const DATA = 'chat-data-v1';
 const MEDIA = 'chat-media-v1';   /* смайлики, стикеры, фото из чатов — один раз скачали, дальше без интернета */
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
@@ -52,7 +52,8 @@ self.addEventListener('fetch', (event)=>{
     return;
   }
   // смайлики, 3D-стикеры, фото и картинки из чатов: из телефона, а не из сети
-  if((url.hostname === 'fonts.gstatic.com' && url.pathname.startsWith('/s/e/notoemoji/'))
+  if((url.origin === self.location.origin && url.pathname.indexOf('/fx/') >= 0)
+     || (url.hostname === 'fonts.gstatic.com' && url.pathname.startsWith('/s/e/notoemoji/'))
      || (url.hostname === 'cdn.jsdelivr.net' && /emoji/i.test(url.pathname))
      || (url.hostname === 'firebasestorage.googleapis.com' && !/\.(mp4|webm|mov|m4a|mp3|ogg|wav)(\?|$)/i.test(url.pathname))){
     event.respondWith(caches.open(MEDIA).then(async (c)=>{
