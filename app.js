@@ -1900,7 +1900,15 @@ window.__appLoaded=!0;let firebaseConfig={apiKey:"AIzaSyCqHBCbqGSuo4V2FpQ9QICg00
     ['1f381', '🎁', 'Подарок'], ['1f49d', '💝', 'Сердце'], ['1f382', '🎂', 'Торт'], ['1f490', '💐', 'Букет'],
     ['1f9f8', '🧸', 'Мишка'], ['1f388', '🎈', 'Шарик'], ['1f339', '🌹', 'Роза'], ['1f48d', '💍', 'Кольцо'],
     ['1f37e', '🍾', 'Шампанское'], ['1f3c6', '🏆', 'Кубок'], ['1f984', '🦄', 'Единорог'], ['1f973', '🥳', 'Праздник'],
-    ['1f389', '🎉', 'Хлопушка'], ['1f496', '💖', 'Сердечко'], ['1f36d', '🍭', 'Леденец'], ['1f451', '👑', 'Корона']
+    ['1f389', '🎉', 'Хлопушка'], ['1f496', '💖', 'Сердечко'], ['1f36d', '🍭', 'Леденец'], ['1f451', '👑', 'Корона'],
+    ['1f409', '🐉', 'Дракон'], ['1f43c', '🐼', 'Панда'], ['1f98a', '🦊', 'Лисёнок'], ['1f431', '🐱', 'Котик'], ['1f436', '🐶', 'Щенок'],
+    ['1f981', '🦁', 'Лев'], ['1f43b', '🐻', 'Медведь'], ['1f435', '🐵', 'Обезьянка'], ['1f438', '🐸', 'Лягушонок'], ['1f419', '🐙', 'Осьминог'],
+    ['1f996', '🦖', 'Динозавр'], ['1f418', '🐘', 'Слонёнок'], ['1f42c', '🐬', 'Дельфин'], ['1f433', '🐳', 'Кит'], ['1f427', '🐧', 'Пингвин'],
+    ['1f98b', '🦋', 'Бабочка'], ['1f680', '🚀', 'Ракета'], ['1f47b', '👻', 'Привидение'], ['1f916', '🤖', 'Робот'], ['1f47d', '👽', 'Инопланетянин'],
+    ['1f47e', '👾', 'Космо-игра'], ['1f9d9', '🧙', 'Волшебник'], ['1f9da', '🧚', 'Фея'], ['1f9de', '🧞', 'Джинн'], ['1f385', '🎅', 'Дед Мороз'],
+    ['1f384', '🎄', 'Ёлка'], ['1f383', '🎃', 'Тыква'], ['1f525', '🔥', 'Огонь'], ['1f308', '🌈', 'Радуга'], ['1f31f', '🌟', 'Звезда'],
+    ['1f60d', '😍', 'Влюблённый'], ['1f970', '🥰', 'Обнимашка'], ['1f60e', '😎', 'Крутой'], ['1f929', '🤩', 'Вау'], ['1f608', '😈', 'Чертёнок'],
+    ['1f921', '🤡', 'Клоун'], ['1f480', '💀', 'Скелет'], ['1f9be', '🦾', 'Кибер-рука'], ['1f993', '🦓', 'Зебра']
   ];
   const BY = Object.fromEntries(SK.map((s)=> [s[0], s]));
   window.GIFT_3D_SKINS = SK;
@@ -5698,4 +5706,67 @@ Object.assign(window.__AM_ORIGIN || (window.__AM_ORIGIN = {}), {lid: '50% 0%', s
   if(!loadVoices()){
     let n = 0; const t = setInterval(()=>{ if(loadVoices()){ clearInterval(t); emit('voiceschanged'); } else if(++n > 40) clearInterval(t); }, 500);
   } else setTimeout(()=> emit('voiceschanged'), 0);
+})();
+
+
+/* ---------- 5. настройка подарка: прокрутка больше не прыгает наверх ---------- */
+(function gbxKeepScroll(){
+  let keep = null;                    /* {tab, top, until} */
+  const body = ()=> document.getElementById('gbx-body');
+  document.addEventListener('pointerdown', (e)=>{
+    const w = body(); if(!w || !e.target.closest || !e.target.closest('#gbx-body')) return;
+    keep = {tab: w.dataset.tab, top: w.scrollTop, until: Date.now() + 1500};
+  }, true);
+  document.addEventListener('scroll', (e)=>{       /* пользователь сам крутит — обновляем */
+    const w = body(); if(!w || e.target !== w || !keep) return;
+    if(w.scrollTop > 0 || Date.now() > keep.until) keep.top = w.scrollTop;
+  }, true);
+  function restore(){
+    const w = body(); if(!w || !keep || Date.now() > keep.until || w.dataset.tab !== keep.tab) return;
+    if(Math.abs(w.scrollTop - keep.top) > 2) w.scrollTop = keep.top;
+  }
+  new MutationObserver(()=>{
+    if(!keep) return;
+    restore();
+    requestAnimationFrame(restore);
+    [60, 160, 320, 600].forEach((t)=> setTimeout(restore, t));   /* чипы/картинки подгружаются позже */
+  }).observe(document.body, {childList: true, subtree: true});
+  document.addEventListener('load', (e)=>{ if(e.target && e.target.classList && e.target.classList.contains('gb-e3d')) restore(); }, true);
+})();
+
+/* ---------- 6. диагностика: озвучка нейросетью и музыка больше не «молчат» ---------- */
+(function ttsMusicDiagnostics(){
+  /* озвучка: запрос к серверу озвучки без таймаута висел вечно — теперь обрыв через 25 с с понятной ошибкой */
+  const origFetch = window.fetch.bind(window);
+  window.fetch = function(input, init){
+    try{
+      const u = typeof input === 'string' ? input : (input && input.url) || '';
+      if(/(\/tts\/?$|[?&]op=tts)/.test(u) && !(init && init.signal)){
+        const ac = new AbortController(); const t = setTimeout(()=> ac.abort(), 25000);
+        return origFetch(input, Object.assign({}, init || {}, {signal: ac.signal})).then(
+          (r)=>{ clearTimeout(t); window.__ttsLast = 'HTTP ' + r.status; return r; },
+          (e)=>{ clearTimeout(t); window.__ttsLast = (e && e.name === 'AbortError') ? 'таймаут 25 с (сервер озвучки недоступен без VPN?)' : String(e && e.message); try{ toast('Озвучка: ' + window.__ttsLast); }catch(_){} throw e; }
+        );
+      }
+    }catch(e){}
+    return origFetch(input, init);
+  };
+  /* музыка: ошибки загрузки аудио показываем, а не глотаем */
+  const seen = new WeakSet();
+  document.addEventListener('error', (e)=>{
+    const a = e.target; if(!a || a.tagName !== 'AUDIO' || seen.has(a)) return;
+    seen.add(a);
+    const c = a.error && a.error.code, host = (()=>{ try{ return new URL(a.currentSrc || a.src).hostname; }catch(_){ return ''; } })();
+    const why = c === 4 ? 'формат или адрес не поддерживается' : c === 2 ? 'сеть (сервер недоступен без VPN?)' : c === 3 ? 'ошибка декодирования' : 'ошибка ' + c;
+    try{ toast('Музыка не играет: ' + why + (host ? ' · ' + host : '')); }catch(_){}
+    console.warn('audio error', c, a.currentSrc);
+  }, true);
+  const play = HTMLMediaElement.prototype.play;
+  HTMLMediaElement.prototype.play = function(...a){
+    const p = play.apply(this, a);
+    if(p && p.catch) p.catch((err)=>{
+      if(err && err.name === 'NotAllowedError'){ try{ toast('Браузер заблокировал звук — нажмите ▶ ещё раз'); }catch(_){} }
+    });
+    return p;
+  };
 })();
