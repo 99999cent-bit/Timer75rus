@@ -2809,7 +2809,8 @@ window.NOTO_ANIM_GROUPS=[{"name":"Смайлики","list":"😀|😃|😄|😁|
       else if(document.fullscreenElement) document.exitFullscreen().catch(()=>{});
     };
   }
-  new MutationObserver(inject).observe(document.body, {childList: true, subtree: true});
+  let injT = 0;
+  new MutationObserver(()=>{ if(injT) return; injT = setTimeout(()=>{ injT = 0; inject(); }, 200); }).observe(document.body, {childList: true, subtree: true});
 })();
 
 /* ============================================================
@@ -3189,7 +3190,8 @@ window.NOTO_ANIM_GROUPS=[{"name":"Смайлики","list":"😀|😃|😄|😁|
     const b = document.getElementById('bg-mode-switch'); if(!b) return;
     const r = b.closest('.settings-row'); if(r && r.style.display !== 'none'){ r.style.display = 'none'; const n = r.nextElementSibling; if(n && n.classList.contains('bg-mode-note')) n.style.display = 'none'; }
   }
-  new MutationObserver(()=>{ inject(); hideOldBg(); }).observe(document.body, {childList: true, subtree: true});
+  let injTimer = 0;
+  new MutationObserver(()=>{ if(injTimer) return; injTimer = setTimeout(()=>{ injTimer = 0; inject(); hideOldBg(); }, 150); }).observe(document.body, {childList: true, subtree: true});
   setInterval(sync, 3000);
 
   /* фоновый режим не нужен, если работают push и пользователь не включал локальные */
@@ -3440,7 +3442,8 @@ window.NOTO_ANIM_GROUPS=[{"name":"Смайлики","list":"😀|😃|😄|😁|
     [...sel.options].forEach(o=>{ if(/^custom_/.test(o.value) && o.value !== slot.key) o.remove(); });
     const own = [...sel.options].find(o=> o.value === slot.key);
     const name = localStorage.getItem('soundName_' + slot.key);
-    if(own) own.textContent = name ? '🎵 Свой: ' + name : '🎵 Свой звук (аудио или видео)…';
+    const label = name ? '🎵 Свой: ' + name : '🎵 Свой звук (аудио или видео)…';
+    if(own && own.textContent !== label) own.textContent = label;     /* менять только если отличается — иначе бесконечный цикл */
     if(own && name && !sel.querySelector('option[value="__repick"]')){ const r = document.createElement('option'); r.value = '__repick'; r.textContent = '📂 Выбрать другой файл…'; own.after(r); }
   }
   document.addEventListener('change', async (e)=>{
@@ -3469,7 +3472,12 @@ window.NOTO_ANIM_GROUPS=[{"name":"Смайлики","list":"😀|😃|😄|😁|
       toast('Не удалось взять звук из файла: ' + (err && err.message || 'формат не поддерживается'));
     }
   }, true);
-  new MutationObserver(()=>{ Object.keys(SLOTS).forEach(id=>{ const s = document.getElementById(id); if(s && !s.__tidy){ s.__tidy = 1; tidy(s); } else if(s) tidy(s); }); }).observe(document.body, {childList: true, subtree: true});
+  /* наводим порядок в списках, когда они появляются; не чаще раза в 300 мс */
+  let tidyTimer = 0;
+  new MutationObserver(()=>{
+    if(tidyTimer) return;
+    tidyTimer = setTimeout(()=>{ tidyTimer = 0; Object.keys(SLOTS).forEach(id=>{ const s = document.getElementById(id); if(s) tidy(s); }); }, 300);
+  }).observe(document.body, {childList: true, subtree: true});
 
   /* ---------- Android: тот же звук в системных уведомлениях ---------- */
   const b64 = (blob)=> new Promise((res)=>{ const r = new FileReader(); r.onload = ()=> res(String(r.result).split(',')[1] || ''); r.readAsDataURL(blob); });
