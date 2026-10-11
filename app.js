@@ -2941,7 +2941,7 @@ window.NOTO_ANIM_GROUPS=[{"name":"Смайлики","list":"😀|😃|😄|😁|
   function NativeNotification(title, opts){
     opts = opts || {};
     const data = opts.data || {};
-    try{ A.showNotification(String(title || ''), String(opts.body || ''), String(opts.tag || ''), String(data.chatId || ''), String(opts.icon && /^https:/.test(opts.icon) ? opts.icon : '')); }catch(e){}
+    try{ A.showNotification(String(title || ''), String(opts.body || ''), String(opts.tag || ''), String(data.chatId || ((/^chat[_-](.+)$/.exec(String(opts.tag || '')) || [])[1]) || ''), String(opts.icon && /^https:/.test(opts.icon) ? opts.icon : '')); }catch(e){}
     this.title = title; this.body = opts.body || ''; this.tag = opts.tag || ''; this.data = data; this.onclick = null;
   }
   NativeNotification.prototype.close = function(){};
@@ -2958,9 +2958,10 @@ window.NOTO_ANIM_GROUPS=[{"name":"Смайлики","list":"😀|😃|😄|😁|
   /* ---------- push ---------- */
   const saveToken = async (tok)=>{
     if(!tok || !state.currentUser || typeof db === 'undefined' || !db) return;
+    try{ if(localStorage.getItem('notifPushPref') === '0') return; }catch(e){}
     if(!isAdm() && state.appConfig && state.appConfig.pushEnabled === false) return;
     try{ await db.collection('users').doc(state.currentUser.uid).update({fcmTokens: firebase.firestore.FieldValue.arrayUnion(tok)}); }catch(e){}
-    try{ pushToken = tok; }catch(e){}
+    try{ pushToken = tok; localStorage.setItem('pushRegistered', '1'); localStorage.setItem('pushTok', tok); }catch(e){}
   };
   window.__nativePushToken = (tok)=>{ window.__nativeTok = tok; if(A.notificationsAllowed()) saveToken(tok); };
   if(typeof registerPushToken === 'function'){
@@ -3091,4 +3092,130 @@ window.NOTO_ANIM_GROUPS=[{"name":"Смайлики","list":"😀|😃|😄|😁|
   try{ localStorage.setItem('fsMode', A.isFullscreen() ? '1' : '0'); }catch(e){}
   /* отступ сверху в приложении не нужен — если когда-то ставили вручную, сбрасываем */
   try{ if(uiPrefs && uiPrefs.topInset === 26){ uiPrefs.topInset = null; localStorage.setItem('uiPrefs', JSON.stringify(uiPrefs)); applyUiPrefs(); } }catch(e){}
+})();
+
+/* ============================================================
+   ROUND 190 — оповещения у каждого пользователя
+   • Настройки → Оповещения: два тумблера, как у админа:
+       «Push-уведомления» (на этом телефоне) и
+       «Локальные уведомления (фоновый режим)»;
+   • если push работает — локальные по умолчанию выключены,
+     поэтому уведомления больше не приходят дважды;
+   • админ своими тумблерами («Оповещения» в админке) выключает их
+     у обычных пользователей — тогда у них тумблер серый;
+   • в Android-приложении аватарки собеседников передаются приложению —
+     фото в уведомлении есть даже без интернета до сервера.
+============================================================ */
+(function userNotifyPrefs(){
+  const LS = (k, v)=>{ try{ if(v === undefined) return localStorage.getItem(k); if(v === null) localStorage.removeItem(k); else localStorage.setItem(k, v); }catch(e){ return null; } };
+  const isAdm = ()=> !!(state.currentUser && state.currentUser.isAdmin);
+  const cfg = ()=> state.appConfig || {};
+  const A = window.AndroidApp && window.AndroidApp.isNative ? window.AndroidApp : null;
+
+  const pushAdminOk = ()=> isAdm() || cfg().pushEnabled !== false;
+  const localAdminOk = ()=> isAdm() || cfg().localNotifsEnabled !== false;
+  const pushUserOn = ()=> LS('notifPushPref') !== '0';
+  const pushWorks = ()=> pushAdminOk() && pushUserOn() && LS('pushRegistered') === '1';
+  /* локальные: явный выбор пользователя, иначе — только если push не работает */
+  const localUserOn = ()=>{ const v = LS('notifLocalPref'); if(v === '1') return true; if(v === '0') return false; return !pushWorks(); };
+
+  localNotifsAllowed = function(){ return localAdminOk() && localUserOn(); };
+
+  /* push: учитываем выбор пользователя и запоминаем, что телефон зарегистрирован */
+  if(typeof registerPushToken === 'function'){
+    const o = registerPushToken;
+    registerPushToken = async function(askUser){
+      if(!pushUserOn()) return {ok: false, error: 'Push-уведомления выключены в настройках (Оповещения)'};
+      const r = await o.apply(this, arguments);
+      if(r && r.ok){ LS('pushRegistered', '1'); if(r.token) LS('pushTok', r.token); }
+      return r;
+    };
+  }
+  async function pushOff(){
+    LS('pushRegistered', null);
+    const toks = [LS('pushTok'), (typeof pushToken !== 'undefined' ? pushToken : ''), A && A.pushToken ? A.pushToken() : ''].filter(Boolean);
+    if(state.currentUser && typeof db !== 'undefined' && db && toks.length){
+      try{ await db.collection('users').doc(state.currentUser.uid).update({fcmTokens: firebase.firestore.FieldValue.arrayRemove(...toks)}); }catch(e){}
+    }
+  }
+
+  /* ---------- тумблеры в «Настройки → Оповещения» ---------- */
+  const row = (id, title, sub)=> `<div class="settings-row" style="padding:12px 0;border:none;background:none;">
+      <div><div class="settings-row-title">${title}</div><div class="settings-row-sub" id="${id}-sub">${sub}</div></div>
+      <label class="toggle-switch"><input type="checkbox" id="${id}"><span class="toggle-slider"></span></label></div>`;
+  function sync(){
+    const p = document.getElementById('un-push'), l = document.getElementById('un-local');
+    if(!p || !l) return;
+    const pa = pushAdminOk(), la = localAdminOk();
+    p.checked = pa && pushUserOn(); p.disabled = !pa;
+    l.checked = la && localUserOn(); l.disabled = !la;
+    p.closest('.settings-row').style.opacity = pa ? '' : '.5';
+    l.closest('.settings-row').style.opacity = la ? '' : '.5';
+    const ps = document.getElementById('un-push-sub'), ls = document.getElementById('un-local-sub');
+    if(ps) ps.textContent = !pa ? 'Выключено администратором' : (LS('pushRegistered') === '1' ? 'Приходят, даже когда приложение закрыто' : 'Приходят, даже когда приложение закрыто — включите, чтобы подключить телефон');
+    if(ls) ls.textContent = !la ? 'Выключено администратором' : (pushWorks() ? 'Не нужны, когда работают push: иначе уведомления придут дважды' : 'Показывает само приложение, пока оно открыто или свёрнуто');
+  }
+  function inject(){
+    const en = document.getElementById('notif-enabled-switch'); if(!en) return;
+    const host = en.closest('.settings-row'); if(!host || document.getElementById('un-push')) return;
+    const box = document.createElement('div'); box.id = 'un-box';
+    box.innerHTML = row('un-push', '🔔 Push-уведомления', '') + row('un-local', '📳 Локальные уведомления (фоновый режим)', '');
+    host.after(box);
+    sync();
+    box.querySelector('#un-push').onchange = async (e)=>{
+      if(e.target.checked){
+        LS('notifPushPref', '1');
+        const r = typeof registerPushToken === 'function' ? await registerPushToken(true) : null;
+        toast(r && r.ok ? 'Push-уведомления включены' : ('Не удалось включить push' + (r && r.error ? ': ' + r.error : '')));
+        if(r && r.ok && LS('notifLocalPref') !== '1'){ LS('notifLocalPref', null); try{ stopBackgroundMode(); }catch(_){} }
+      } else {
+        LS('notifPushPref', '0'); await pushOff();
+        toast('Push-уведомления выключены на этом телефоне');
+      }
+      sync();
+    };
+    box.querySelector('#un-local').onchange = (e)=>{
+      const on = e.target.checked;
+      LS('notifLocalPref', on ? '1' : '0');
+      LS('bgMode', on ? '1' : '0');
+      try{ on ? startBackgroundMode() : stopBackgroundMode(); }catch(_){}
+      if(on && pushWorks()) toast('Включены и push, и локальные — уведомления могут приходить дважды');
+      else toast(on ? 'Локальные уведомления включены' : 'Локальные уведомления выключены');
+      sync();
+    };
+  }
+  /* старый переключатель «Фоновый режим» теперь управляется отсюда */
+  function hideOldBg(){
+    const b = document.getElementById('bg-mode-switch'); if(!b) return;
+    const r = b.closest('.settings-row'); if(r && r.style.display !== 'none'){ r.style.display = 'none'; const n = r.nextElementSibling; if(n && n.classList.contains('bg-mode-note')) n.style.display = 'none'; }
+  }
+  new MutationObserver(()=>{ inject(); hideOldBg(); }).observe(document.body, {childList: true, subtree: true});
+  setInterval(sync, 3000);
+
+  /* фоновый режим не нужен, если работают push и пользователь не включал локальные */
+  setInterval(()=>{ try{ if(!localNotifsAllowed() && typeof bgAudio !== 'undefined' && bgAudio) stopBackgroundMode(); }catch(e){} }, 5000);
+
+  /* ---------- Android-приложение: аватарки для уведомлений ---------- */
+  if(A && A.cacheAvatar){
+    const sent = new Map();
+    const push = ()=>{
+      try{
+        const rq = indexedDB.open('pushAvatars', 1);
+        rq.onupgradeneeded = ()=>{ try{ rq.result.createObjectStore('a'); }catch(e){} };
+        rq.onsuccess = ()=>{
+          try{
+            const st = rq.result.transaction('a', 'readonly').objectStore('a');
+            const cur = st.openCursor();
+            cur.onsuccess = ()=>{
+              const c = cur.result; if(!c) return;
+              const k = String(c.key), v = c.value;
+              if(typeof v === 'string' && sent.get(k) !== v.length){ sent.set(k, v.length); try{ A.cacheAvatar(k, v.split(',')[1] || ''); }catch(e){} }
+              c.continue();
+            };
+          }catch(e){}
+        };
+      }catch(e){}
+    };
+    setTimeout(push, 8000); setInterval(push, 30000);
+  }
 })();
