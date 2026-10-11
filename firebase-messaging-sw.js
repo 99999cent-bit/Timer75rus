@@ -1,27 +1,52 @@
-// Импорт Firebase скриптов для Service Worker
-importScripts('https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js');
-importScripts('https://www.gstatic.com/firebasejs/10.7.1/firebase-messaging-compat.js');
+/* Фоновые push-уведомления (Firebase Cloud Messaging).
+   Лежит рядом с index.html. Настраивать ничего не нужно —
+   ключи приходят из приложения в адресе регистрации. */
+importScripts('https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js');
+importScripts('https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging-compat.js');
 
-// Инициализация с вашими настройками из app.js
-firebase.initializeApp({
-  apiKey: "AIzaSyCqHBCbqGSuo4V2FpQ9QICg00QQpO1-P-s",
-  authDomain: "chat-42f66.firebaseapp.com",
-  projectId: "chat-42f66",
-  storageBucket: "chat-42f66.firebasestorage.app",
-  messagingSenderId: "708710541235",
-  appId: "1:708710541235:web:246f6a7ecd2b4f0b3ecdc6"
-});
+const P = new URLSearchParams(self.location.search);
+try {
+  firebase.initializeApp({
+    apiKey: P.get('apiKey') || '',
+    projectId: P.get('projectId') || '',
+    appId: P.get('appId') || '',
+    messagingSenderId: P.get('senderId') || ''
+  });
+  const messaging = firebase.messaging();
+  /* уведомление без готового «notification» — рисуем сами */
+  messaging.onBackgroundMessage((p) => {
+    if (p && p.notification) return;           /* такое Firebase покажет сам */
+    const d = (p && p.data) || {};
+    return self.registration.showNotification(d.title || 'Новое сообщение', {
+      body: d.body || '',
+      tag: d.chatId ? 'chat-' + d.chatId : (d.type || 'msg'),
+      renotify: true,
+      icon: 'icon-192.png',
+      badge: 'icon-192.png',
+      data: d
+    });
+  });
+} catch (e) {}
 
-const messaging = firebase.messaging();
+self.addEventListener('install', () => self.skipWaiting());
+self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));
 
-// Перехват уведомлений при закрытом приложении
-messaging.onBackgroundMessage((payload) => {
-  console.log('[firebase-messaging-sw.js] Получено фоновое сообщение:', payload);
-  const title = payload.notification?.title || 'Новое сообщение';
-  const options = {
-    body: payload.notification?.body || '',
-    icon: '/icon-192.png'
-  };
-
-  self.registration.showNotification(title, options);
+/* нажатие на уведомление — открыть приложение (и нужный чат) */
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const d = (event.notification && event.notification.data) || {};
+  const fcm = d.FCM_MSG || {};
+  const data = Object.assign({}, fcm.data || {}, d);
+  const base = new URL('./', self.registration.scope.replace(/firebase-cloud-messaging-push-scope\/?$/, '')).href;
+  const url = data.url || (data.chatId ? base + '?chat=' + encodeURIComponent(data.chatId) : base);
+  event.waitUntil((async () => {
+    const all = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    for (const c of all) {
+      if (c.url.startsWith(base)) {
+        try { c.postMessage({ type: 'open-chat', chatId: data.chatId || '' }); } catch (e) {}
+        return c.focus();
+      }
+    }
+    return self.clients.openWindow(url);
+  })());
 });
