@@ -39,8 +39,13 @@ try {
     if (p && p.notification) return;           /* такое Firebase покажет сам */
     const d = (p && p.data) || {};
     /* фото справа: аватарка, которую приложение заранее сохранило на телефоне */
-    const saved = (d.chatId && await avatarFromPhone('chat-' + d.chatId)) || ((d.sender || d.uid) && await avatarFromPhone(d.sender || d.uid)) || '';
-    const icon = saved || (/^https:\/\//.test(d.icon || '') ? d.icon : APP_BASE + 'icon-192.png');
+    /* 1) фото с push-сервера по короткой ссылке (проверяем, что оно есть);
+       2) аватарка, которую приложение сохранило на телефоне; 3) значок приложения */
+    let icon = '';
+    if (/^https:\/\//.test(d.icon || '')) {
+      try { const r = await fetch(d.icon, { cache: 'force-cache' }); if (r.ok && /^image\//.test(r.headers.get('content-type') || '')) icon = d.icon; } catch (e) {}
+    }
+    if (!icon) icon = (d.chatId && await avatarFromPhone('chat-' + d.chatId)) || ((d.sender || d.uid) && await avatarFromPhone(d.sender || d.uid)) || APP_BASE + 'icon-192.png';
     return self.registration.showNotification(d.title || 'Новое сообщение', {
       body: d.body || '',
       tag: d.chatId ? 'chat-' + d.chatId : (d.type || 'msg'),

@@ -2787,7 +2787,7 @@ window.NOTO_ANIM_GROUPS=[{"name":"Смайлики","list":"😀|😃|😄|😁|
 (function fullScreenMode(){
   const KEY = 'fsMode';
   const standalone = ()=>{ try{ return matchMedia('(display-mode: standalone)').matches || matchMedia('(display-mode: fullscreen)').matches; }catch(e){ return false; } };
-  const on = ()=>{ try{ return localStorage.getItem(KEY) !== '0'; }catch(e){ return true; } };   /* по умолчанию включено */
+  const on = ()=>{ try{ return localStorage.getItem(KEY) === '1'; }catch(e){ return false; } };   /* по умолчанию выключено: «во весь экран» даёт manifest */
   const go = ()=>{
     if(!on() || document.fullscreenElement || !document.documentElement.requestFullscreen) return;
     document.documentElement.requestFullscreen({navigationUI: 'hide'}).catch(()=>{});
@@ -2809,4 +2809,103 @@ window.NOTO_ANIM_GROUPS=[{"name":"Смайлики","list":"😀|😃|😄|😁|
     };
   }
   new MutationObserver(inject).observe(document.body, {childList: true, subtree: true});
+})();
+
+/* ============================================================
+   ROUND 188 — админка: отдельная вкладка «Оповещения»
+   • туда перенесены настройки push и локальных (фоновых) уведомлений;
+   • два тумблера: «Push-уведомления у пользователей» и
+     «Локальные уведомления (фоновый режим) у пользователей» —
+     выключают их у обычных пользователей, у админов всё работает;
+   • вкладка «Сервер» — без этих настроек.
+============================================================ */
+(function adminNotifyTab(){
+  const isAdm = ()=> !!(state.currentUser && state.currentUser.isAdmin);
+  const isPushSection = (el)=> !!(el && el.querySelector && el.querySelector('#as-vapid, #as-pushurl, #as-local-notifs, #as-push-test'));
+
+  /* локальные уведомления: у админа — всегда; у остальных — по тумблеру */
+  if(typeof localNotifsAllowed === 'function'){
+    const o = localNotifsAllowed;
+    localNotifsAllowed = function(){ return isAdm() || o.apply(this, arguments); };
+  }
+  /* push: если админ выключил — обычный пользователь не регистрирует устройство */
+  if(typeof registerPushToken === 'function'){
+    const o = registerPushToken;
+    registerPushToken = async function(t){
+      if(!isAdm() && state.appConfig && state.appConfig.pushEnabled === false) return {ok: false, error: 'Push-уведомления отключены администратором'};
+      return o.apply(this, arguments);
+    };
+  }
+
+  /* кнопка вкладки */
+  function addTabBtn(){
+    const srv = document.querySelector('.admin-tab-btn[data-tab="server"]');
+    if(!srv || document.querySelector('.admin-tab-btn[data-tab="notify"]')) return;
+    const b = document.createElement('button'); b.className = 'admin-tab-btn'; b.dataset.tab = 'notify'; b.textContent = 'Оповещения';
+    b.onclick = ()=> switchAdminTab('notify');
+    srv.parentNode.insertBefore(b, srv);
+  }
+  addTabBtn(); setTimeout(addTabBtn, 1500);
+
+  const sw = (id, on, title, sub)=> `<div class="settings-row" style="display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--border)">
+      <div style="flex:1"><div style="font-weight:700">${title}</div><div class="hint" style="margin:2px 0 0">${sub}</div></div>
+      <label class="toggle-switch"><input type="checkbox" id="${id}" ${on ? 'checked' : ''}><span class="toggle-slider"></span></label></div>`;
+
+  async function saveCfg(patch, okText){
+    try{
+      await db.collection('config').doc('app').set(patch, {merge: true});
+      state.appConfig = Object.assign({}, state.appConfig, patch);
+      toast(okText);
+    }catch(e){ toast('Не удалось сохранить: ' + (e.message || e)); }
+  }
+
+  /* после отрисовки «Сервера» раскладываем блоки по вкладкам */
+  function split(mode){
+    const body = document.getElementById('admin-body'); if(!body) return;
+    [...body.children].forEach(ch=>{
+      if(ch.id === 'an-head') return;
+      const push = isPushSection(ch);
+      ch.style.display = (mode === 'notify') === push ? '' : 'none';
+    });
+    if(mode === 'notify'){
+      /* старая галочка «локальные у всех» заменена тумблером сверху */
+      const old = document.getElementById('as-local-notifs'); if(old){ const l = old.closest('label'); if(l) l.style.display = 'none'; }
+    }
+  }
+  let watch = null;
+  function keepSplit(mode){
+    if(watch) watch.disconnect();
+    const body = document.getElementById('admin-body'); if(!body) return;
+    split(mode);
+    watch = new MutationObserver(()=> { if(state.adminTab === mode || (mode === 'server' && state.adminTab === 'server')) split(mode); });
+    watch.observe(body, {childList: true});
+    setTimeout(()=> { if(watch){ watch.disconnect(); watch = null; } }, 4000);
+  }
+
+  const orig = switchAdminTab;
+  switchAdminTab = function(t){
+    addTabBtn();
+    if(t !== 'notify'){
+      const r = orig.apply(this, arguments);
+      if(t === 'server' || !t) keepSplit('server');
+      return r;
+    }
+    orig.call(this, 'server');          /* закрывает подписки и рисует блоки «Сервера» */
+    state.adminTab = 'notify';
+    document.querySelectorAll('.admin-tab-btn').forEach(b=> b.classList.toggle('active', b.getAttribute('data-tab') === 'notify'));
+    const body = document.getElementById('admin-body'); if(!body) return;
+    const c = state.appConfig || {};
+    const head = document.createElement('div'); head.id = 'an-head';
+    head.innerHTML = `<div style="font-size:17px;font-weight:800;margin:4px 0 6px">Оповещения</div>
+      <div class="hint" style="margin:0 0 6px">Тумблеры действуют на обычных пользователей. У администраторов уведомления работают всегда.</div>
+      ${sw('an-push', c.pushEnabled !== false, '🔔 Push-уведомления у пользователей', 'Приходят, когда приложение закрыто (через push-сервер)')}
+      ${sw('an-local', c.localNotifsEnabled !== false, '📳 Локальные уведомления (фоновый режим)', 'Показывает само приложение, пока оно открыто или свёрнуто')}`;
+    body.insertBefore(head, body.firstChild);
+    head.querySelector('#an-push').onchange = (e)=> saveCfg({pushEnabled: e.target.checked}, e.target.checked ? 'Push у пользователей включены' : 'Push у пользователей выключены');
+    head.querySelector('#an-local').onchange = (e)=>{
+      const on = e.target.checked; const old = document.getElementById('as-local-notifs'); if(old) old.checked = on;
+      saveCfg({localNotifsEnabled: on}, on ? 'Фоновые уведомления включены' : 'Фоновые уведомления у пользователей выключены');
+    };
+    keepSplit('notify');
+  };
 })();
