@@ -2712,7 +2712,7 @@ window.NOTO_ANIM_GROUPS=[{"name":"Смайлики","list":"😀|😃|😄|😁|
       /* 2. устройство зарегистрировано? */
       try{ if(typeof registerPushToken === 'function'){ const t = await registerPushToken(true); steps.push(t.ok ? '✅ Устройство зарегистрировано' : '❌ ' + escapeHtml(t.error)); } }catch(e){ steps.push('❌ ' + escapeHtml(e.message)); }
       /* 3. отправка */
-      try{ const j = await post('/push/test', {}); steps.push(j.sent > 0 ? `✅ Отправлено на устройств: ${j.sent} — уведомление должно прийти` : '⚠️ Сервер не нашёл устройств: разрешите уведомления и повторите проверку'); }
+      try{ const j = await post('/push/test', {}); steps.push(j.sent > 0 ? `✅ Отправлено на устройств: ${j.sent} — уведомление должно прийти` : j.errors && j.errors.length ? '❌ Firebase не принял отправку (' + (j.tokens||0) + ' устр.): ' + escapeHtml(j.errors.slice(0,3).join('; ')) : j.reason ? '⚠️ ' + escapeHtml(j.reason) : '⚠️ Сервер не нашёл устройств — обновите server.js на Railway (нужна версия с подробной проверкой)'); }
       catch(e){ steps.push('❌ Отправка: ' + escapeHtml(e.message)); }
       msg('<div class="info-box" style="line-height:1.6">' + steps.join('<br>') + '</div>');
     };
