@@ -4518,3 +4518,51 @@ window.FX_EMO=[["Смайлики", "😀", ["😀", "😃", "😄", "😁", "�
     window.__nativeAnswerCall(fast);
   }
 })();
+
+/* ---------- iPhone: после клавиатуры экран не «уезжает» ----------
+   На iPhone (приложение с главного экрана) после отправки сообщения клавиатура
+   закрывается, а страница остаётся сдвинутой вверх — нижняя панель уходит за край
+   и меняется размер экрана. Возвращаем всё на место, как только клавиатура закрылась,
+   и держим высоту приложения равной высоте экрана. */
+(function iosKeyboardFix(){
+  const ua = navigator.userAgent || '';
+  const ios = /iP(hone|ad|od)/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  if(!ios) return;
+  const root = document.documentElement, vv = window.visualViewport;
+  root.classList.add('ios');
+  let standalone = false; try{ standalone = navigator.standalone === true || matchMedia('(display-mode: standalone)').matches || matchMedia('(display-mode: fullscreen)').matches; }catch(e){}
+  if(standalone) root.classList.add('ios-pwa');   /* в Safari-вкладке высоту не трогаем — там свои панели */
+  const field = (el)=> !!(el && el.matches && el.matches('input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=range]), textarea, [contenteditable=""], [contenteditable="true"]'));
+  let portrait = matchMedia('(orientation: portrait)').matches;
+  let fullH = window.innerHeight;
+  const kbOpen = ()=> field(document.activeElement) && vv && vv.height < window.innerHeight * 0.85;
+  function setH(){
+    const p = matchMedia('(orientation: portrait)').matches;
+    if(p !== portrait){ portrait = p; fullH = window.innerHeight; }
+    if(!kbOpen()) fullH = Math.max(window.innerHeight, vv ? Math.round(vv.height) : 0, p === portrait ? fullH : 0);
+    root.style.setProperty('--ios-h', fullH + 'px');
+  }
+  function reset(){
+    if(field(document.activeElement)) return;
+    if(window.scrollY || root.scrollTop || document.body.scrollTop || (vv && vv.offsetTop)){
+      window.scrollTo(0, 0); root.scrollTop = 0; document.body.scrollTop = 0;
+    }
+    root.classList.remove('kb-open');
+    root.style.setProperty('--kb-bottom', '0px'); root.style.setProperty('--kb-top', '0px');
+    setH();
+  }
+  const later = ()=>{ [60, 250, 600].forEach((t)=> setTimeout(reset, t)); };
+  document.addEventListener('focusout', later, true);
+  if(vv) vv.addEventListener('resize', ()=>{ if(!kbOpen()) later(); else setH(); });
+  window.addEventListener('orientationchange', ()=> setTimeout(()=>{ fullH = window.innerHeight; setH(); reset(); }, 350));
+  window.addEventListener('pageshow', later);
+  document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState === 'visible') later(); });
+  /* вышли из чата / открыли другой — тоже на место */
+  ['openChat', 'closeActiveChat'].forEach((n)=>{
+    const o = window[n]; if(typeof o !== 'function') return;
+    const w = function(...a){ const r = o.apply(this, a); later(); return r; };
+    window[n] = w;
+    try{ if(n === 'openChat') openChat = w; else closeActiveChat = w; }catch(e){}
+  });
+  setH();
+})();
