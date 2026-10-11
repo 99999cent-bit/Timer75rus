@@ -4400,3 +4400,18 @@ window.FX_EMO=[["Смайлики", "😀", ["😀", "😃", "😄", "😁", "�
   let it = 0;
   new MutationObserver(()=>{ if(it) return; it = setTimeout(()=>{ it = 0; inject(); }, 250); }).observe(document.body, {childList: true, subtree: true});
 })();
+
+/* ---------- 3. «Ответить» в уведомлении о звонке (Android-приложение) ---------- */
+(function nativeAnswer(){
+  window.__nativeAnswerCall = (cid)=>{
+    const until = Date.now() + 20000;
+    const tick = ()=>{
+      try{
+        if(state.activeCallState === 'incoming' && (!cid || callId === cid) && typeof acceptIncomingCall === 'function'){ acceptIncomingCall(); return; }
+        if(state.activeCallState && state.activeCallState !== 'incoming') return;      /* уже в звонке */
+      }catch(e){}
+      if(Date.now() < until) setTimeout(tick, 250);
+    };
+    tick();
+  };
+})();

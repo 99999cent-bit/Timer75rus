@@ -38,6 +38,12 @@ try {
   messaging.onBackgroundMessage(async (p) => {
     if (p && p.notification) return;           /* такое Firebase покажет сам */
     const d = (p && p.data) || {};
+    /* звонок закончился — убрать уведомление о нём */
+    if (d.type === 'call_end') {
+      const list = await self.registration.getNotifications();
+      list.forEach((n) => { if (n.tag === 'chat-' + d.chatId && n.data && n.data.type === 'call') n.close(); });
+      return;
+    }
     /* фото справа: аватарка, которую приложение заранее сохранило на телефоне */
     /* 1) фото с push-сервера по короткой ссылке (проверяем, что оно есть);
        2) аватарка, которую приложение сохранило на телефоне; 3) значок приложения */
@@ -50,6 +56,7 @@ try {
       body: d.body || '',
       tag: d.chatId ? 'chat-' + d.chatId : (d.type || 'msg'),
       renotify: true,
+      requireInteraction: d.type === 'call',
       icon,
       badge: APP_BASE + 'badge-96.png',          /* маленький белый значок в строке состояния */
       vibrate: [180, 80, 180],
