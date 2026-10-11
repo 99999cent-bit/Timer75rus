@@ -2349,6 +2349,8 @@ window.NOTO_ANIM_GROUPS=[{"name":"Смайлики","list":"😀|😃|😄|😁|
       const buf = await r.arrayBuffer();
       const dec = new ImageDecoder({data: buf, type: /image\\//.test(type) ? type : 'image/webp'});
       await dec.tracks.ready;
+      /* на Android число кадров известно только после полного разбора файла */
+      try{ await Promise.race([dec.completed, new Promise((r)=> setTimeout(r, 4000))]); }catch(e){}
       const tr = dec.tracks.selectedTrack; const n = Math.max(1, tr.frameCount || 1);
       const step = Math.max(1, Math.ceil(n / maxFrames)); const frames = Math.ceil(n / step);
       const cols = Math.ceil(Math.sqrt(frames)), rows = Math.ceil(frames / cols);
@@ -2394,7 +2396,7 @@ window.NOTO_ANIM_GROUPS=[{"name":"Смайлики","list":"😀|😃|😄|😁|
     }
   }
   function sprite(e, size){
-    const code = animCode(e), key = code + '@' + size;
+    const code = animCode(e), key = code + '@' + size + 'v2';
     if(sprites.has(key)) return sprites.get(key);
     const p = (async ()=>{
       const c = await dget(key); if(c && c.blob) return c;
@@ -2402,6 +2404,7 @@ window.NOTO_ANIM_GROUPS=[{"name":"Смайлики","list":"😀|😃|😄|😁|
       try{ const u = window.animEmojiUrl && animEmojiUrl(e); if(u && u.startsWith('blob:')) url = u; }catch(er){}
       const d = await new Promise((res, rej)=>{ jobs.push({url, size, maxFrames: size > 120 ? 36 : 48, res, rej}); runJobs(); });
       const v = {blob: d.blob, frames: d.frames, cols: d.cols, size: d.size, dur: d.dur};
+      if(v.frames <= 1) throw new Error('one frame');   /* не разложилось — пусть играет обычная живая картинка */
       dput(key, v);
       return v;
     })();
@@ -2453,11 +2456,11 @@ window.NOTO_ANIM_GROUPS=[{"name":"Смайлики","list":"😀|😃|😄|😁|
     if(!hasAnim(e)) return Promise.resolve(false);
     size = size || 96;
     return sprite(e, size).then((sp)=>{
-      if(!img.isConnected) return false;
+      if(!img.isConnected || !sp || sp.frames <= 1) return false;
       const cv = document.createElement('canvas'); cv.width = sp.size; cv.height = sp.size;
       cv.className = (img.className || '') + ' la-cv'; cv.setAttribute('aria-label', e);
       const g = cv.getContext('2d');
-      const it = {cv, g, sp, key: animCode(e) + '@' + size, t0: performance.now() - Math.random() * 400, f: -1, vis: false, b: null};
+      const it = {cv, g, sp, key: animCode(e) + '@' + size + 'v2', t0: performance.now() - Math.random() * 400, f: -1, vis: false, b: null};
       cv.__la = it; items.add(it);
       /* первый кадр сразу, чтобы не мигало */
       bitmapFor(it.key, sp).then((b)=>{ it.b = b; g.drawImage(b.bmp, 0, 0, sp.size, sp.size, 0, 0, sp.size, sp.size); if(img.isConnected) img.replaceWith(cv); io.observe(cv); kick(); }).catch(()=>{});
@@ -3509,4 +3512,151 @@ window.NOTO_ANIM_GROUPS=[{"name":"Смайлики","list":"😀|😃|😄|😁|
   }
   if(A){ setTimeout(syncNative, 6000); setInterval(syncNative, 8000); }
   window.__sounds = {fileToSound, melodyToWav};
+})();
+
+/* ============================================================
+   ROUND 192
+   • чат больше не открывается «на середине» и не тянет обратно:
+     если часы на телефоне собеседника спешат, его сообщения
+     казались «из будущего» — чат всегда считался непрочитанным и
+     при каждом открытии прыгал к «Непрочитанным сообщениям»;
+     теперь «прочитано» ставится не раньше самого нового сообщения;
+   • в Android-приложении свёрнутое приложение считается свёрнутым:
+     сообщения не отмечаются прочитанными, пока вы их не открыли;
+   • длинные мелодии (3–8 секунд) для сообщений и звонков;
+   • смайлики и стикеры сами заранее загружаются в телефон
+     (в фоне, по Wi-Fi) и потом открываются мгновенно и без интернета
+============================================================ */
+
+/* ---------- 1. «прочитано» не раньше самого нового сообщения ---------- */
+(function readMarkSkew(){
+  const newest = (cid)=>{
+    let t = 0;
+    try{
+      const c = (state.chats || []).find((x)=> x.id === cid) || state.activeChatMeta || {};
+      t = Math.max(t, +c.lastTimestamp || 0);
+      if(state.activeChatId === cid) (state.currentMessages || []).forEach((m)=>{ t = Math.max(t, +m.timestamp || 0); });
+    }catch(e){}
+    return t;
+  };
+  markActiveChatRead = function(cid){
+    try{
+      const me = state.currentUser && state.currentUser.uid; if(!me || !state.activeChatMeta) return;
+      if(!isChatUnread(state.activeChatMeta)) return;
+      if(document.visibilityState !== 'visible') return;
+      const ts = Math.max(Date.now(), newest(cid) + 1);
+      const lr = Object.assign({}, state.activeChatMeta.lastReadBy || {}, {[me]: ts});
+      state.activeChatMeta.lastReadBy = lr;
+      const c = (state.chats || []).find((x)=> x.id === cid); if(c) c.lastReadBy = lr;
+      db.collection('chats').doc(cid).update({['lastReadBy.' + me]: ts}).catch(()=>{});
+    }catch(e){}
+  };
+})();
+
+/* ---------- 2. Android-приложение: свёрнуто = скрыто ---------- */
+(function nativeVisibility(){
+  if(!(window.AndroidApp && AndroidApp.isNative)) return;
+  let hidden = false;
+  try{
+    Object.defineProperty(document, 'visibilityState', {configurable: true, get: ()=> hidden ? 'hidden' : 'visible'});
+    Object.defineProperty(document, 'hidden', {configurable: true, get: ()=> hidden});
+  }catch(e){}
+  window.__nativeVisibility = (visible)=>{
+    const h = !visible; if(h === hidden) return;
+    hidden = h;
+    try{ document.dispatchEvent(new Event('visibilitychange')); }catch(e){}
+  };
+  window.__nativeResume = ()=> window.__nativeVisibility(true);
+})();
+
+/* ---------- 3. длинные мелодии ---------- */
+(function longMelodies(){
+  if(typeof NOTIF_MELODIES === 'undefined') return;
+  const N = (f, t, d, g)=> ({f, t, d, g: g == null ? 1 : g});
+  /* ноты */
+  const C4 = 261.6, D4 = 293.7, E4 = 329.6, F4 = 349.2, G4 = 392, A4 = 440, B4 = 493.9,
+        C5 = 523.3, D5 = 587.3, E5 = 659.3, F5 = 698.5, G5 = 784, A5 = 880, B5 = 987.8, C6 = 1046.5, D6 = 1174.7, E6 = 1318.5, G6 = 1568;
+  const seq = (notes, step, dur, g)=> notes.map((f, i)=> f ? N(f, i * step, dur, g) : null).filter(Boolean);
+  const L = {
+    l_morning:  {label: '🌄 Утро (длинная)',          inst: 'kalimba', notes: seq([C5, E5, G5, C6, G5, E5, D5, G5, B5, D6, B5, G5, C6], .26, .9)},
+    l_rain:     {label: '🌧 Капли дождя (длинная)',    inst: 'bell',    notes: [G6, E6, C6, E6, D6, G5, A5, C6, E6, D6].map((f, i)=> N(f, i * .32 + (i % 3) * .05, .7, .45))},
+    l_lullaby:  {label: '🌙 Колыбельная (длинная)',    inst: 'soft',    notes: seq([E5, G5, E5, G5, A5, G5, E5, D5, E5, C5], .42, .8)},
+    l_waltz:    {label: '💃 Вальс (длинная)',          inst: 'pluck',   notes: [C4, E5, G5, G4, E5, G5, F4, F5, A5, G4, D5, B5, C4, E5, C6].map((f, i)=> N(f, i * .24, i % 3 ? .5 : .9, i % 3 ? .7 : 1))},
+    l_space:    {label: '🚀 Космос (длинная)',         inst: 'bowl',    notes: [N(C5, 0, 2.6, .8), N(G5, .9, 2.6, .6), N(E5, 1.8, 2.8, .6), N(B5, 2.7, 3.2, .5)]},
+    l_sea:      {label: '🌊 Море (длинная)',           inst: 'rhodes',  notes: seq([D5, F5, A5, C6, A5, F5, E5, G5, B5, D6, B5, G5], .3, 1.0, .8)},
+    l_retro:    {label: '☎️ Ретро-звонок (длинная)',  inst: 'soft',    notes: [...Array(20)].map((_, i)=> N(i % 2 ? 1250 : 1000, (i < 10 ? 0 : 1.6) + (i % 10) * .06, .07, .7))},
+    l_birds:    {label: '🐦 Птицы в саду (длинная)',   inst: 'chirp',   notes: [N(2200, 0, .08), N(2600, .12, .08), N(2400, .5, .1), N(2900, .62, .07), N(2500, 1.3, .09), N(3100, 1.42, .07), N(2300, 1.54, .12), N(2700, 2.3, .08), N(3000, 2.42, .1)]},
+    l_harpfall: {label: '🎼 Арфа-каскад (длинная)',    inst: 'pluck',   notes: seq([C6, B5, G5, E5, D5, C5, G4, E4, G4, C5, E5, G5, C6], .14, 1.0)},
+    l_chimes:   {label: '🎐 Ветряные колокольчики (длинная)', inst: 'bell', notes: [E6, B5, G6, D6, A5, E6, C6, G6].map((f, i)=> N(f, i * .38 + (i % 2) * .11, 1.2, .4))},
+    l_piano:    {label: '🎹 Пианино (длинная)',        inst: 'rhodes',  notes: seq([E5, D5, C5, D5, E5, E5, E5, 0, D5, D5, D5, 0, E5, G5, G5], .3, .6, .85)},
+    l_zenlong:  {label: '🧘 Медитация (длинная)',      inst: 'bowl',    notes: [N(G4, 0, 3.4, .9), N(D5, 2.2, 3.4, .55), N(G4, 4.4, 3.6, .8)]}
+  };
+  Object.assign(NOTIF_MELODIES, L);
+})();
+
+/* ---------- 4. смайлики и стикеры — заранее в телефон ---------- */
+(function prefetchEmoji(){
+  const wifi = ()=>{ const c = navigator.connection; if(!c) return true; if(c.saveData) return false; return !c.type || c.type === 'wifi' || c.type === 'ethernet' || c.effectiveType === '4g'; };
+  const idle = (f)=> (window.requestIdleCallback ? requestIdleCallback(f, {timeout: 4000}) : setTimeout(f, 800));
+  function list(){
+    const out = new Set();
+    try{ (window.QUICK_REACTIONS || ['❤️', '👍', '😂', '😮', '😢', '🔥']).forEach((e)=> out.add(e)); }catch(e){}
+    try{ Object.keys(JSON.parse(localStorage.getItem('emojiUsage') || '{}')).forEach((e)=> out.add(e)); }catch(e){}
+    try{ ['recentEmoji', 'recentEmojis', 'emojiRecent'].forEach((k)=>{ const v = JSON.parse(localStorage.getItem(k) || '[]'); (Array.isArray(v) ? v : []).forEach((e)=> out.add(e)); }); }catch(e){}
+    try{ const g = (window.NOTO_ANIM_GROUPS || [])[0]; if(g && g.list) g.list.split('|').slice(0, 120).forEach((e)=> out.add(e)); }catch(e){}
+    return Array.from(out);
+  }
+  let started = false;
+  function run(){
+    if(started || !window.LiveAnim || !LiveAnim.ok || !wifi()) return;
+    started = true;
+    const doneKey = 'emojiPrefetchV2';
+    let done = {}; try{ done = JSON.parse(localStorage.getItem(doneKey) || '{}'); }catch(e){}
+    const todo = list().filter((e)=> !done[e] && LiveAnim.hasAnim(e));
+    let i = 0;
+    const next = ()=>{
+      if(i >= todo.length || document.visibilityState !== 'visible') { started = false; return; }
+      const e = todo[i++];
+      LiveAnim.sprite(e, 96).catch(()=>{}).then(()=>{
+        done[e] = 1; if(i % 5 === 0) try{ localStorage.setItem(doneKey, JSON.stringify(done)); }catch(_){}
+        setTimeout(()=> idle(next), 350);
+      });
+    };
+    idle(next);
+  }
+  setTimeout(run, 15000);
+  setInterval(run, 120000);
+})();
+
+/* ---------- 5. чат всегда открывается внизу, без «прыжков» к непрочитанным ----------
+   Раньше при открытии чат 2 секунды тянуло то к «Непрочитанным сообщениям», то вниз.
+   Теперь полоска «Непрочитанные сообщения» остаётся на месте (её видно, если листать вверх),
+   а чат открывается на последнем сообщении. */
+(function noUnreadJump(){
+  const box = document.getElementById('messages'); if(!box) return;
+  new MutationObserver(()=>{
+    const d = document.getElementById('unread-divider');
+    if(d){ d.id = 'unread-divider-shown'; }
+    const all = box.querySelectorAll('#unread-divider-shown');
+    if(all.length > 1) for(let i = 0; i < all.length - 1; i++) all[i].remove();
+  }).observe(box, {childList: true, subtree: true});
+})();
+
+/* ---------- 6. длинная мелодия звонка не накладывается сама на себя ---------- */
+(function longRingtones(){
+  if(typeof startIncomingRingtone !== 'function' || typeof stopIncomingRingtone !== 'function') return;
+  const lenOf = (m)=>{ let t = 0; (m && m.inst ? m.notes : []).forEach((n)=>{ t = Math.max(t, n.t + n.d); }); return t; };
+  const oStart = startIncomingRingtone, oStop = stopIncomingRingtone;
+  let timer = null;
+  stopIncomingRingtone = function(){ if(timer){ clearInterval(timer); timer = null; } return oStop.apply(this, arguments); };
+  startIncomingRingtone = function(){
+    const video = typeof callType !== 'undefined' && callType === 'video';
+    const name = video ? state.notifPrefs.ringtoneVideoMelody : state.notifPrefs.ringtoneAudioMelody;
+    const vol = video ? state.notifPrefs.ringtoneVideoVolume : state.notifPrefs.ringtoneAudioVolume;
+    const len = lenOf(NOTIF_MELODIES[name]);
+    if(len <= 3.6) return oStart.apply(this, arguments);
+    stopIncomingRingtone();
+    playNotificationSound(name, vol);
+    timer = setInterval(()=> playNotificationSound(name, vol), Math.round((len + 0.7) * 1000));
+  };
 })();
