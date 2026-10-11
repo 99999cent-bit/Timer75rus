@@ -5319,3 +5319,233 @@ Object.assign(window.__AM_ORIGIN || (window.__AM_ORIGIN = {}), {lid: '50% 0%', s
     randomChar().then(()=>{ undo.length = 0; redo.length = 0; paintActs(); });
   };
 })();
+
+/* ============================================================
+   ROUND 199 — всё хранится в телефоне и открывается мгновенно
+   Каждая вкладка (чаты, уведомления, звонки, контакты, истории,
+   профиль, друзья, лайки, сообщества, музыка, настройки приложения)
+   запоминает последние данные в телефоне (IndexedDB «fsSnap»):
+   • при запуске списки рисуются сразу из памяти телефона, а свежие
+     данные подтягиваются следом и тихо обновляют экран;
+   • без интернета всё видно и открывается (профили собеседников,
+     список чатов, история звонков…);
+   • медленный интернет: если ответ не пришёл за 2,5 секунды —
+     показываем сохранённое, а свежее подставится, когда придёт;
+   • звуки «новое сообщение / уведомление» не играют повторно за то,
+     что уже было показано в push, пока приложение было закрыто
+============================================================ */
+(function offlineSnapshots(){
+  const F = window.firebase && firebase.firestore;
+  if(!F || !F.Query || !F.DocumentReference || !window.indexedDB) return;
+  const Qp = F.Query.prototype, Dp = F.DocumentReference.prototype;
+  if(Qp.__offlineSnap) return; Qp.__offlineSnap = true;
+
+  /* что не храним: переписка (у неё свой склад), звонки и служебное */
+  const DENY = /(^|[\/:])(messages|calls|callerCandidates|calleeCandidates|reactions|chunks|mediaChunks|usernames|emails|phones|bans|accountDeletions|deletedUsers)(\/|\||$)/;
+  const MAX_BYTES = 1.5e6, MAX_KEYS = 350;
+
+  /* ---------- склад ---------- */
+  const mem = new Map(); let readyDone = false;
+  let dbp = null;
+  const idb = ()=> dbp || (dbp = new Promise((res)=>{ try{ const r = indexedDB.open('fsSnap', 1); r.onupgradeneeded = ()=> r.result.createObjectStore('s'); r.onsuccess = ()=> res(r.result); r.onerror = ()=> res(null); }catch(e){ res(null); } }));
+  const ready = (async ()=>{
+    try{
+      const d = await idb(); if(!d) return;
+      await new Promise((res)=>{
+        try{
+          const st = d.transaction('s').objectStore('s'); const rq = st.openCursor();
+          rq.onsuccess = ()=>{ const c = rq.result; if(c){ mem.set(c.key, c.value); c.continue(); } else res(); };
+          rq.onerror = ()=> res();
+        }catch(e){ res(); }
+      });
+    }catch(e){}
+    readyDone = true;
+  })();
+  const pending = new Map(); let flushT = 0;
+  function put(sig, val){
+    mem.set(sig, val); pending.set(sig, val);
+    if(flushT) return;
+    flushT = setTimeout(async ()=>{
+      flushT = 0; const d = await idb(); if(!d) return;
+      const items = Array.from(pending.entries()); pending.clear();
+      try{
+        const tx = d.transaction('s', 'readwrite'), st = tx.objectStore('s');
+        items.forEach(([k, v])=> st.put(v, k));
+        if(mem.size > MAX_KEYS){
+          const old = Array.from(mem.entries()).sort((a, b)=> (a[1].at || 0) - (b[1].at || 0)).slice(0, mem.size - MAX_KEYS + 50);
+          old.forEach(([k])=>{ mem.delete(k); st.delete(k); });
+        }
+      }catch(e){}
+    }, 500);
+  }
+  window.__fsSnapClear = async ()=>{ mem.clear(); const d = await idb(); if(d) try{ d.transaction('s', 'readwrite').objectStore('s').clear(); }catch(e){} };
+
+  /* ---------- данные: даты Firestore сохраняем и восстанавливаем ---------- */
+  const TS = F.Timestamp;
+  function enc(v, top){
+    if(v == null || typeof v !== 'object') return v;
+    if(TS && v instanceof TS) return {__ts: [v.seconds, v.nanoseconds]};
+    if(Array.isArray(v)) return v.map((x)=> enc(x));
+    if(typeof v.toMillis === 'function' && 'seconds' in v) return {__ts: [v.seconds, v.nanoseconds || 0]};
+    if(v instanceof Date) return {__dt: +v};
+    if(v.constructor && v.constructor !== Object && !(v instanceof Date)){
+      if(typeof v.path === 'string' && typeof v.id === 'string') return {__ref: v.path};          /* ссылка на документ */
+      if('latitude' in v && 'longitude' in v) return {__geo: [v.latitude, v.longitude]};
+    }
+    const o = {};
+    for(const k of Object.keys(v)){ if(top && k === 'typing') continue; o[k] = enc(v[k]); }
+    return o;
+  }
+  function dec(v){
+    if(v == null || typeof v !== 'object') return v;
+    if(Array.isArray(v)) return v.map(dec);
+    if(v.__ts) return TS ? new TS(v.__ts[0], v.__ts[1]) : v.__ts[0] * 1000;
+    if(v.__dt) return new Date(v.__dt);
+    if(v.__ref){ try{ return db.doc(v.__ref); }catch(e){ return null; } }
+    if(v.__geo){ try{ return new F.GeoPoint(v.__geo[0], v.__geo[1]); }catch(e){ return null; } }
+    const o = {}; for(const k of Object.keys(v)) o[k] = dec(v[k]); return o;
+  }
+  const refOf = (path)=>{ try{ return path ? db.doc(path) : null; }catch(e){ return null; } };
+  function fakeDoc(e){
+    return {
+      id: e.id, exists: e.d != null, ref: refOf(e.p),
+      data: ()=> e.d == null ? undefined : dec(e.d),
+      get: (f)=>{ const d = e.d == null ? undefined : dec(e.d); return String(f).split('.').reduce((o, k)=> o == null ? undefined : o[k], d); },
+      metadata: {fromCache: true, hasPendingWrites: false}, __offline: true
+    };
+  }
+  function fakeQuery(c){
+    const docs = (c.docs || []).map(fakeDoc);
+    return {
+      docs, size: docs.length, empty: !docs.length,
+      forEach: (cb, th)=> docs.forEach(cb, th),
+      docChanges: ()=> docs.map((doc, i)=> ({type: 'added', doc, oldIndex: -1, newIndex: i})),
+      metadata: {fromCache: true, hasPendingWrites: false}, __offline: true
+    };
+  }
+  function save(sig, snap, kind){
+    try{
+      if(!snap || (snap.metadata && (snap.metadata.fromCache || snap.metadata.hasPendingWrites))) return;
+      let val;
+      if(kind === 'q') val = {at: Date.now(), docs: snap.docs.map((d)=> ({id: d.id, p: d.ref && d.ref.path, d: enc(d.data(), true)}))};
+      else val = {at: Date.now(), id: snap.id, p: snap.ref && snap.ref.path, d: snap.exists ? enc(snap.data(), true) : null};
+      const size = JSON.stringify(val).length;
+      if(size > MAX_BYTES) return;
+      const prevV = mem.get(sig);
+      if(prevV && JSON.stringify(prevV.docs || prevV.d) === JSON.stringify(val.docs || val.d)){ prevV.at = val.at; return; }
+      put(sig, val);
+    }catch(e){}
+  }
+
+  /* ---------- подпись запроса (какая коллекция и какие условия) ---------- */
+  const rep = (k, v)=>{
+    if(v && typeof v === 'object'){
+      if(TS && v instanceof TS) return {ts: v.seconds + '.' + v.nanoseconds};
+      if(v.constructor && v.constructor !== Object && v.constructor !== Array) throw new Error('nocache');   /* снимок документа и т.п. */
+    }
+    return v;
+  };
+  ['where', 'orderBy', 'limit', 'limitToLast', 'startAt', 'startAfter', 'endAt', 'endBefore'].forEach((n)=>{
+    const o = Qp[n]; if(typeof o !== 'function') return;
+    Qp[n] = function(...a){
+      const r = o.apply(this, a);
+      try{
+        const base = this.__sig !== undefined ? this.__sig : (typeof this.path === 'string' ? 'q:' + this.path : null);
+        r.__sig = base == null ? null : base + '|' + n + JSON.stringify(a, rep);
+      }catch(e){ try{ r.__sig = null; }catch(_){} }
+      return r;
+    };
+  });
+  const qSig = (q)=>{ const s = q.__sig !== undefined ? q.__sig : (typeof q.path === 'string' ? 'q:' + q.path : null); return s && !DENY.test(s) ? s : null; };
+  const dSig = (d)=> (typeof d.path === 'string' && !DENY.test(d.path)) ? 'd:' + d.path : null;
+
+  /* после показа сохранённого списка чатов — «новыми» считаем только то, что придёт после свежей загрузки */
+  function afterCache(sig){
+    if(/^q:chats\|/.test(sig)){ try{ if(typeof knownChatLastTimestamps === 'object' && knownChatLastTimestamps) for(const k of Object.keys(knownChatLastTimestamps)) delete knownChatLastTimestamps[k]; }catch(e){} }
+  }
+  /* первый свежий снимок после сохранённого: изменения «тихие» (как при обычном первом открытии) */
+  function quietFirst(snap){
+    const o = Object.create(snap);
+    o.docChanges = ()=> [];
+    return o;
+  }
+
+  function wrapListen(orig, kind){
+    return function(...a){
+      const sig = kind === 'q' ? qSig(this) : dSig(this);
+      if(!sig) return orig.apply(this, a);
+      let idx = a.findIndex((x)=> typeof x === 'function'), obsIdx = -1;
+      if(idx < 0) obsIdx = a.findIndex((x)=> x && typeof x === 'object' && typeof x.next === 'function');
+      if(idx < 0 && obsIdx < 0) return orig.apply(this, a);
+      const user = idx >= 0 ? a[idx] : a[obsIdx].next.bind(a[obsIdx]);
+      let dead = false, gotServer = false, served = false;
+      const next = (snap)=>{
+        if(dead) return;
+        const fromCache = !!(snap && snap.metadata && snap.metadata.fromCache);
+        /* телефон без сети: Firestore присылает пустой «из кэша» — показываем наше сохранённое вместо пустоты */
+        if(fromCache && !gotServer && (served || (readyDone && mem.has(sig)))) return;
+        if(!fromCache){ save(sig, snap, kind); }
+        let out = snap;
+        if(!fromCache && !gotServer && served && kind === 'q') out = quietFirst(snap);
+        if(!fromCache) gotServer = true;
+        user(out);
+      };
+      const b = a.slice();
+      if(idx >= 0) b[idx] = next; else b[obsIdx] = Object.assign({}, a[obsIdx], {next});
+      const unsub = orig.apply(this, b);
+      ready.then(()=>{
+        if(dead || gotServer) return;
+        const c = mem.get(sig); if(!c) return;
+        served = true;
+        try{ user(kind === 'q' ? fakeQuery(c) : fakeDoc(c)); afterCache(sig); }catch(e){ console.warn('offline snapshot', sig, e); }
+      });
+      return function(){ dead = true; return unsub.apply(this, arguments); };
+    };
+  }
+  Qp.onSnapshot = wrapListen(Qp.onSnapshot, 'q');
+  Dp.onSnapshot = wrapListen(Dp.onSnapshot, 'd');
+
+  /* разовые запросы: сохранённое — если нет сети или сеть медленная */
+  const SLOW = 2500;
+  function wrapGet(orig, kind){
+    return function(opts){
+      if(opts && opts.source) return orig.call(this, opts);
+      const sig = kind === 'q' ? qSig(this) : dSig(this);
+      if(!sig) return orig.call(this, opts);
+      const net = orig.call(this, opts).then((s)=>{ if(s && !(s.metadata && s.metadata.fromCache)) save(sig, s, kind); return s; });
+      return ready.then(()=>{
+        const c = mem.get(sig);
+        if(!c) return net;
+        const fromStore = ()=> kind === 'q' ? fakeQuery(c) : fakeDoc(c);
+        if(!navigator.onLine){ net.catch(()=>{}); return fromStore(); }
+        let settled = false;
+        return new Promise((res)=>{
+          const t = setTimeout(()=>{ if(!settled){ settled = true; res(fromStore()); } }, SLOW);
+          net.then((s)=>{
+            if(settled) return; settled = true; clearTimeout(t);
+            /* Firestore без сети отдал пустое «из кэша» — лучше наше сохранённое */
+            if(s && s.metadata && s.metadata.fromCache && ((kind === 'q' && s.empty) || (kind === 'd' && !s.exists))) res(fromStore()); else res(s);
+          }, ()=>{ if(settled) return; settled = true; clearTimeout(t); res(fromStore()); });
+        });
+      });
+    };
+  }
+  Qp.get = wrapGet(Qp.get, 'q');
+  Dp.get = wrapGet(Dp.get, 'd');
+
+  /* вошёл другой человек — данные прежнего из телефона убираем */
+  const watchUser = ()=>{
+    try{
+      if(!(firebase.apps && firebase.apps.length)) return false;
+      firebase.auth().onAuthStateChanged((u)=>{
+        if(!u) return;
+        let prevUid = ''; try{ prevUid = localStorage.getItem('fsSnapUid') || ''; }catch(e){}
+        if(prevUid && prevUid !== u.uid) window.__fsSnapClear();
+        try{ localStorage.setItem('fsSnapUid', u.uid); }catch(e){}
+      });
+      return true;
+    }catch(e){ return false; }
+  };
+  if(!watchUser()){ const t = setInterval(()=>{ if(watchUser()) clearInterval(t); }, 500); setTimeout(()=> clearInterval(t), 60000); }
+  window.__fsSnapDebug = {mem, put, ready};
+})();

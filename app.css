@@ -303,3 +303,6 @@
 .lsm-prow .sep{flex:0 0 10px;}
 .lsm-pgrid{grid-template-rows:repeat(2,64px)!important;grid-auto-columns:64px!important;}
 .lsm2 .lsm-stage.playing{overflow:hidden;}
+
+/* ===== ROUND 199: длинные списки рисуются быстрее (невидимые строки не отрисовываются) ===== */
+#chat-list .chat-item,#calls-list .chat-item,#contacts-list .chat-item,#community-list .chat-item,#blacklist-list .chat-item,[id^="discovery-"][id$="-list"] .chat-item{content-visibility:auto;contain-intrinsic-size:auto 68px;}
