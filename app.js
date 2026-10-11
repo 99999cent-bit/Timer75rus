@@ -4566,3 +4566,756 @@ window.FX_EMO=[["Смайлики", "😀", ["😀", "😃", "😄", "😁", "�
   });
   setH();
 })();
+
+/* ============================================================
+   ROUND 198 — живой мемоджи «полный фарш»
+   • всё можно удалить: у выбранной детали на картинке крестик ✕,
+     уголок ↘ — размер, ⟳ — поворот; двумя пальцами — размер и поворот;
+   • ↶ Отменить и ↷ Вернуть — для любого действия (детали, цвета,
+     движения, рисунок, перемещение);
+   • ⧉ копия детали, ⇋ отразить, ⬆⬇ выше/ниже других деталей;
+   • новые разделы: тело и одежда (с цветом), уши/рожки/нимб,
+     усы и борода, очки (с цветом оправы), узоры (веснушки, усы
+     кошки, полоски тигра, пластырь, капля пота…), предметы в руках,
+     питомцы; больше лиц, глаз, бровей, ртов, носов, причёсок,
+     рук, шапок и эффектов;
+   • живые глаза: зрачки смотрят по сторонам, веки моргают,
+     длинные волосы — отдельная прядь сзади
+============================================================ */
+Object.assign(window.__AM_DUR || (window.__AM_DUR = {}), {lid: 3.6, sway: 2.8});
+Object.assign(window.__AM_ORIGIN || (window.__AM_ORIGIN = {}), {lid: '50% 0%', sway: '50% 0%'});
+
+(function memojiMax(){
+  const S = 360;
+  const esc = (s)=> String(s == null ? '' : s).replace(/[&<>"']/g, (c)=> ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+  const b64u = (str)=>{ const by = new TextEncoder().encode(str); let s = ''; for(let i = 0; i < by.length; i += 0x8000) s += String.fromCharCode.apply(null, by.subarray(i, i + 0x8000)); return btoa(s); };
+  const hex = (c)=>{ c = c.replace('#', ''); if(c.length === 3) c = c.split('').map((x)=> x + x).join(''); return [0, 2, 4].map((i)=> parseInt(c.substr(i, 2), 16)); };
+  const shade = (c, k)=>{ const [r, g, b] = hex(c); const f = (v)=> Math.max(0, Math.min(255, Math.round(k < 0 ? v * (1 + k) : v + (255 - v) * k))); return '#' + [f(r), f(g), f(b)].map((v)=> v.toString(16).padStart(2, '0')).join(''); };
+  const pickA = (a)=> a[Math.floor(Math.random() * a.length)];
+
+  /* ---------- цвета ---------- */
+  const SKINS = ['#FFE0C7', '#FFD9B8', '#F5C29A', '#E0A774', '#C68642', '#8D5524', '#5C3A21', '#FFD34E', '#9EE6A8', '#A5D8FF', '#E5B8F4', '#F1F3F5'];
+  const EYES_C = ['#5B3A1E', '#2F7DD1', '#3E9D5A', '#1B1D27', '#8A5CF6', '#E8590C', '#C2255C', '#7F8C8D'];
+  const HAIR_C = ['#3B2416', '#1B1D27', '#6F4E37', '#B5651D', '#E8C25B', '#F5E6B8', '#D9480F', '#9AA3B2', '#F8F9FA', '#E64980', '#4C6EF5', '#40C057', '#7048E8'];
+  const CLOTH_C = ['#4C6EF5', '#FF3B5C', '#2FB45A', '#FFD23F', '#FF8A00', '#9B5CFF', '#111318', '#F8F9FA', '#15AABF', '#E64980', '#868E96', '#8B5A2B'];
+  const ACC_C = ['#111318', '#C9A227', '#E03131', '#4C6EF5', '#E64980', '#868E96', '#2FB45A', '#F8F9FA'];
+  const DARK = '#2B1B12';
+  const pair = (one)=> one(25) + one(75);
+
+  /* ---------- детали (рисунок SVG) ----------
+     Строка — одна деталь. Объект — деталь из нескольких слоёв:
+     main (основа), back (позади лица), pupil (зрачки — смотрят), lid (веки — моргают). */
+  const eyeGroup = (rx, ry, ir, pr, extra)=> ({
+    main: pair((x)=> `<ellipse cx="${x}" cy="20" rx="${rx}" ry="${ry}" fill="#fff" stroke="${DARK}" stroke-width="2"/>`) + (extra || ''),
+    pupil: pair((x)=> `<circle cx="${x}" cy="21" r="${ir}" fill="{eye}"/><circle cx="${x}" cy="21" r="${ir * .66}" fill="{eyeD}"/><circle cx="${x}" cy="21" r="${pr}" fill="#111"/><circle cx="${x + ir * .4}" cy="${21 - ir * .45}" r="${Math.max(1.4, ir * .3)}" fill="#fff"/><circle cx="${x - ir * .35}" cy="${21 + ir * .4}" r="${Math.max(.8, ir * .14)}" fill="#fff" opacity=".8"/>`),
+    lid: pair((x)=> `<ellipse cx="${x}" cy="20" rx="${rx + 1.5}" ry="${ry + 1.5}" fill="{skin}"/><path d="M${x - rx - 1} ${20 + ry * .55}Q${x} ${20 + ry + 3} ${x + rx + 1} ${20 + ry * .55}" fill="none" stroke="${DARK}" stroke-width="2.4" stroke-linecap="round"/>`)
+  });
+  const lashes = pair((x)=> `<path d="M${x - 11} 10L${x - 15} 5M${x - 6} 7L${x - 8} 1M${x} 6V0M${x + 6} 7L${x + 8} 1M${x + 11} 10L${x + 15} 5" stroke="${DARK}" stroke-width="2" stroke-linecap="round"/>`);
+  const hairVB = '0 0 100 110';
+  const PARTS = {
+    face: {name: 'Лицо', vb: '0 0 100 100', w: 250, x: 180, y: 192, m: 'none', tone: 'skin', items: {
+      round: '<circle cx="50" cy="52" r="44" fill="url(#g)" stroke="{skinD}" stroke-width="2"/>',
+      oval: '<ellipse cx="50" cy="52" rx="38" ry="46" fill="url(#g)" stroke="{skinD}" stroke-width="2"/>',
+      chubby: '<path d="M50 8C78 8 94 30 94 54C94 80 74 95 50 95C26 95 6 80 6 54C6 30 22 8 50 8Z" fill="url(#g)" stroke="{skinD}" stroke-width="2"/>',
+      square: '<rect x="8" y="8" width="84" height="88" rx="30" fill="url(#g)" stroke="{skinD}" stroke-width="2"/>',
+      egg: '<path d="M50 4C76 4 92 36 92 60C92 84 74 96 50 96C26 96 8 84 8 60C8 36 24 4 50 4Z" fill="url(#g)" stroke="{skinD}" stroke-width="2"/>',
+      heart: '<path d="M50 96C20 76 4 58 6 36C8 16 26 6 40 12C46 15 49 20 50 24C51 20 54 15 60 12C74 6 92 16 94 36C96 58 80 76 50 96Z" fill="url(#g)" stroke="{skinD}" stroke-width="2"/>',
+      cat: '<path d="M14 40L20 4L44 22Z" fill="{skinD}"/><path d="M86 40L80 4L56 22Z" fill="{skinD}"/><path d="M20 30L23 12L36 22Z" fill="#FFA8C5"/><path d="M80 30L77 12L64 22Z" fill="#FFA8C5"/><circle cx="50" cy="54" r="42" fill="url(#g)" stroke="{skinD}" stroke-width="2"/>',
+      bear: '<circle cx="18" cy="20" r="14" fill="{skinD}"/><circle cx="82" cy="20" r="14" fill="{skinD}"/><circle cx="18" cy="20" r="7" fill="#F7B5A0"/><circle cx="82" cy="20" r="7" fill="#F7B5A0"/><circle cx="50" cy="54" r="42" fill="url(#g)" stroke="{skinD}" stroke-width="2"/><ellipse cx="50" cy="70" rx="18" ry="13" fill="{skinL}" opacity=".8"/>',
+      dog: '<circle cx="50" cy="54" r="42" fill="url(#g)" stroke="{skinD}" stroke-width="2"/><ellipse cx="50" cy="72" rx="20" ry="14" fill="{skinL}"/><path d="M14 22C2 30 0 62 12 70C20 74 26 52 26 32Z" fill="{skinD}"/><path d="M86 22C98 30 100 62 88 70C80 74 74 52 74 32Z" fill="{skinD}"/>',
+      panda: '<circle cx="18" cy="18" r="13" fill="#2B2B33"/><circle cx="82" cy="18" r="13" fill="#2B2B33"/><circle cx="50" cy="54" r="42" fill="url(#g)" stroke="{skinD}" stroke-width="2"/><ellipse cx="32" cy="50" rx="11" ry="14" fill="#2B2B33" opacity=".85" transform="rotate(30 32 50)"/><ellipse cx="68" cy="50" rx="11" ry="14" fill="#2B2B33" opacity=".85" transform="rotate(-30 68 50)"/>',
+      fox: '<path d="M10 44L16 2L42 24Z" fill="{skinD}"/><path d="M90 44L84 2L58 24Z" fill="{skinD}"/><path d="M50 14C78 14 94 36 92 56C90 72 70 94 50 96C30 94 10 72 8 56C6 36 22 14 50 14Z" fill="url(#g)" stroke="{skinD}" stroke-width="2"/><path d="M50 96C38 94 22 82 18 66C30 72 42 70 50 62C58 70 70 72 82 66C78 82 62 94 50 96Z" fill="#fff" opacity=".9"/>',
+      robot: '<rect x="46" y="0" width="8" height="14" fill="{skinD}"/><circle cx="50" cy="3" r="5" fill="#FF3B5C"/><rect x="2" y="40" width="10" height="24" rx="4" fill="{skinD}"/><rect x="88" y="40" width="10" height="24" rx="4" fill="{skinD}"/><rect x="10" y="12" width="80" height="82" rx="16" fill="url(#g)" stroke="{skinD}" stroke-width="3"/><circle cx="20" cy="22" r="2.5" fill="{skinD}"/><circle cx="80" cy="22" r="2.5" fill="{skinD}"/><circle cx="20" cy="84" r="2.5" fill="{skinD}"/><circle cx="80" cy="84" r="2.5" fill="{skinD}"/>',
+      alien: '<path d="M38 12L30 2" stroke="{skinD}" stroke-width="3"/><path d="M62 12L70 2" stroke="{skinD}" stroke-width="3"/><circle cx="30" cy="2" r="4" fill="{skinD}"/><circle cx="70" cy="2" r="4" fill="{skinD}"/><path d="M50 8C80 8 92 30 90 52C88 78 66 96 50 96C34 96 12 78 10 52C8 30 20 8 50 8Z" fill="url(#g)" stroke="{skinD}" stroke-width="2"/>'
+    }},
+    ears: {name: 'Уши и рожки', vb: '0 0 100 40', w: 300, x: 180, y: 205, m: 'none', tone: 'skin', items: {
+      human: '<ellipse cx="9" cy="20" rx="8" ry="13" fill="{skin}" stroke="{skinD}" stroke-width="2"/><path d="M7 14Q12 20 7 26" fill="none" stroke="{skinD}" stroke-width="2"/><ellipse cx="91" cy="20" rx="8" ry="13" fill="{skin}" stroke="{skinD}" stroke-width="2"/><path d="M93 14Q88 20 93 26" fill="none" stroke="{skinD}" stroke-width="2"/>',
+      elf: '<path d="M16 12L0 0L6 30Z" fill="{skin}" stroke="{skinD}" stroke-width="2" stroke-linejoin="round"/><path d="M84 12L100 0L94 30Z" fill="{skin}" stroke="{skinD}" stroke-width="2" stroke-linejoin="round"/>',
+      earrings: '<ellipse cx="9" cy="20" rx="8" ry="13" fill="{skin}" stroke="{skinD}" stroke-width="2"/><ellipse cx="91" cy="20" rx="8" ry="13" fill="{skin}" stroke="{skinD}" stroke-width="2"/><circle cx="9" cy="36" r="4" fill="none" stroke="#C9A227" stroke-width="2.4"/><circle cx="91" cy="36" r="4" fill="none" stroke="#C9A227" stroke-width="2.4"/>',
+      bunny: {vb: '0 0 100 80', w: 210, y: 46, m: 'tilt', svg: '<path d="M30 78C14 60 12 10 26 4C40 -2 46 50 42 78Z" fill="{skin}" stroke="{skinD}" stroke-width="2"/><path d="M30 70C22 54 22 18 28 14C34 12 38 46 36 70Z" fill="#FFB3C7"/><path d="M70 78C86 60 88 10 74 4C60 -2 54 50 58 78Z" fill="{skin}" stroke="{skinD}" stroke-width="2"/><path d="M70 70C78 54 78 18 72 14C66 12 62 46 64 70Z" fill="#FFB3C7"/>'},
+      mouse: {vb: '0 0 100 40', w: 330, y: 92, svg: '<circle cx="14" cy="20" r="14" fill="{skinD}"/><circle cx="14" cy="20" r="8" fill="#FFB3C7"/><circle cx="86" cy="20" r="14" fill="{skinD}"/><circle cx="86" cy="20" r="8" fill="#FFB3C7"/>'},
+      horns: {vb: '0 0 100 30', w: 200, y: 70, svg: '<path d="M20 30C10 22 8 8 14 0C18 10 24 18 32 22Z" fill="#E03131" stroke="#A61E1E" stroke-width="1.5"/><path d="M80 30C90 22 92 8 86 0C82 10 76 18 68 22Z" fill="#E03131" stroke="#A61E1E" stroke-width="1.5"/>'},
+      halo: {vb: '0 0 100 30', w: 170, y: 40, m: 'float', svg: '<ellipse cx="50" cy="15" rx="44" ry="11" fill="none" stroke="#FFD23F" stroke-width="6"/><ellipse cx="50" cy="15" rx="44" ry="11" fill="none" stroke="#FFF3BF" stroke-width="2"/>'},
+      antenna: {vb: '0 0 100 40', w: 170, y: 52, m: 'swing', svg: '<path d="M38 40Q30 20 22 8" fill="none" stroke="#2B2B33" stroke-width="3"/><path d="M62 40Q70 20 78 8" fill="none" stroke="#2B2B33" stroke-width="3"/><circle cx="22" cy="8" r="6" fill="#FFD23F"/><circle cx="78" cy="8" r="6" fill="#FFD23F"/>'}
+    }},
+    eyes: {name: 'Глаза', vb: '0 0 100 40', w: 140, x: 180, y: 172, m: 'eyeblink', tone: 'eye', items: {
+      live: eyeGroup(12, 14, 7.5, 3.4),
+      livebig: eyeGroup(15, 18, 11, 5),
+      lashes: eyeGroup(12, 14, 7.5, 3.4, lashes),
+      anime: eyeGroup(13, 17, 11.5, 4.5, pair((x)=> `<path d="M${x - 14} 9Q${x} 0 ${x + 15} 8" fill="none" stroke="${DARK}" stroke-width="3.5" stroke-linecap="round"/>`)),
+      roundy: eyeGroup(13, 13, 6, 3),
+      normal: pair((x)=> `<ellipse cx="${x}" cy="20" rx="12" ry="14" fill="#fff" stroke="${DARK}" stroke-width="2"/><circle cx="${x}" cy="22" r="7.5" fill="{eye}"/><circle cx="${x}" cy="22" r="3.6" fill="#111"/><circle cx="${x + 2.5}" cy="18.5" r="2" fill="#fff"/>`),
+      big: pair((x)=> `<ellipse cx="${x}" cy="20" rx="15" ry="18" fill="#fff" stroke="${DARK}" stroke-width="2"/><circle cx="${x}" cy="22" r="11" fill="{eye}"/><circle cx="${x}" cy="22" r="5.5" fill="#111"/><circle cx="${x + 4}" cy="16.5" r="3.4" fill="#fff"/><circle cx="${x - 3}" cy="27" r="1.6" fill="#fff"/>`),
+      cute: pair((x)=> `<ellipse cx="${x}" cy="20" rx="9" ry="12" fill="#111"/><circle cx="${x + 3}" cy="15" r="3.4" fill="#fff"/><circle cx="${x - 2}" cy="25" r="1.6" fill="#fff"/>`),
+      happy: pair((x)=> `<path d="M${x - 13} 26Q${x} 6 ${x + 13} 26" fill="none" stroke="${DARK}" stroke-width="5" stroke-linecap="round"/>`),
+      closed: pair((x)=> `<path d="M${x - 13} 16Q${x} 32 ${x + 13} 16" fill="none" stroke="${DARK}" stroke-width="4.5" stroke-linecap="round"/><path d="M${x - 10} 24L${x - 13} 29M${x} 27V32M${x + 10} 24L${x + 13} 29" stroke="${DARK}" stroke-width="2" stroke-linecap="round"/>`),
+      laugh: pair((x)=> { const k = x < 50 ? 1 : -1; return `<path d="M${x - 11 * k} 10L${x + 11 * k} 20L${x - 11 * k} 30" fill="none" stroke="${DARK}" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>`; }),
+      sleepy: pair((x)=> `<path d="M${x - 13} 18Q${x} 34 ${x + 13} 18Z" fill="#fff" stroke="${DARK}" stroke-width="2"/><circle cx="${x}" cy="23" r="5" fill="{eye}"/><path d="M${x - 14} 18H${x + 14}" stroke="${DARK}" stroke-width="3.5" stroke-linecap="round"/>`),
+      side: pair((x)=> `<ellipse cx="${x}" cy="20" rx="13" ry="10" fill="#fff" stroke="${DARK}" stroke-width="2"/><circle cx="${x + 7}" cy="21" r="5.5" fill="{eye}"/><circle cx="${x + 7}" cy="21" r="2.6" fill="#111"/><path d="M${x - 14} 14Q${x} 8 ${x + 14} 14" fill="none" stroke="${DARK}" stroke-width="3" stroke-linecap="round"/>`),
+      hearts: pair((x)=> `<path d="M${x} 34C${x - 20} 20 ${x - 16} 4 ${x} 13C${x + 16} 4 ${x + 20} 20 ${x} 34Z" fill="#FF3B5C" stroke="#C2183A" stroke-width="1.5"/><ellipse cx="${x - 5}" cy="13" rx="3" ry="2" fill="#fff" opacity=".8"/>`),
+      stars: pair((x)=> `<path d="M${x} 3L${x + 4.5} 14.5L${x + 16} 15L${x + 7} 22.5L${x + 10} 34L${x} 27.5L${x - 10} 34L${x - 7} 22.5L${x - 16} 15L${x - 4.5} 14.5Z" fill="#FFD23F" stroke="#E0A800" stroke-width="1.5" stroke-linejoin="round"/>`),
+      money: pair((x)=> `<ellipse cx="${x}" cy="20" rx="12" ry="14" fill="#fff" stroke="${DARK}" stroke-width="2"/><text x="${x}" y="28" font-size="22" font-weight="900" text-anchor="middle" fill="#2FB45A" font-family="Arial">$</text>`),
+      shine: pair((x)=> `<ellipse cx="${x}" cy="20" rx="13" ry="16" fill="#1B1D27"/><circle cx="${x + 4}" cy="13" r="5" fill="#fff"/><circle cx="${x - 4}" cy="26" r="2.4" fill="#fff"/><path d="M${x - 2} 22l1.5 3 3 1.5-3 1.5-1.5 3-1.5-3-3-1.5 3-1.5z" fill="#A5D8FF"/>`),
+      wink: `<ellipse cx="25" cy="20" rx="12" ry="14" fill="#fff" stroke="${DARK}" stroke-width="2"/><circle cx="25" cy="22" r="7.5" fill="{eye}"/><circle cx="25" cy="22" r="3.6" fill="#111"/><circle cx="27.5" cy="18.5" r="2" fill="#fff"/><path d="M62 22Q75 30 88 22" fill="none" stroke="${DARK}" stroke-width="5" stroke-linecap="round"/>`,
+      angry: pair((x)=> { const k = x < 50 ? 1 : -1; return `<path d="M${x - 13} ${k > 0 ? 12 : 22}L${x + 13} ${k > 0 ? 22 : 12}Q${x + 13} 36 ${x} 36Q${x - 13} 36 ${x - 13} ${k > 0 ? 12 : 22}Z" fill="#fff" stroke="${DARK}" stroke-width="2"/><circle cx="${x}" cy="27" r="5.5" fill="{eye}"/><circle cx="${x}" cy="27" r="2.6" fill="#111"/>`; }),
+      dizzy: pair((x)=> `<path d="M${x} 20m-2 0a2 2 0 1 1 4 0a4 4 0 1 1-8 0a6 6 0 1 1 12 0a8 8 0 1 1-16 0a10 10 0 1 1 20 0" fill="none" stroke="${DARK}" stroke-width="2.6" stroke-linecap="round"/>`),
+      cross: pair((x)=> `<path d="M${x - 9} 11L${x + 9} 29M${x + 9} 11L${x - 9} 29" stroke="${DARK}" stroke-width="5" stroke-linecap="round"/>`),
+      cyclops: `<ellipse cx="50" cy="20" rx="20" ry="18" fill="#fff" stroke="${DARK}" stroke-width="2"/><circle cx="50" cy="22" r="11" fill="{eye}"/><circle cx="50" cy="22" r="5" fill="#111"/><circle cx="54" cy="16" r="3.4" fill="#fff"/>`,
+      robot: pair((x)=> `<rect x="${x - 13}" y="8" width="26" height="24" rx="5" fill="#1B1D27"/><rect x="${x - 9}" y="12" width="18" height="16" rx="3" fill="#4DD8FF"/><rect x="${x - 7}" y="14" width="6" height="5" fill="#fff" opacity=".8"/>`)
+    }},
+    brows: {name: 'Брови', vb: '0 0 100 30', w: 150, x: 180, y: 130, m: 'raise', tone: 'hair', items: {
+      arc: '<path d="M12 22Q25 8 40 18M60 18Q75 8 88 22" fill="none" stroke="{hair}" stroke-width="5" stroke-linecap="round"/>',
+      angry: '<path d="M12 10L40 22M88 10L60 22" fill="none" stroke="{hair}" stroke-width="6" stroke-linecap="round"/>',
+      worried: '<path d="M12 22L40 10M88 22L60 10" fill="none" stroke="{hair}" stroke-width="5" stroke-linecap="round"/>',
+      thick: '<path d="M10 20Q24 6 42 14L41 20Q25 13 12 25Z M90 20Q76 6 58 14L59 20Q75 13 88 25Z" fill="{hair}"/>',
+      bushy: '<path d="M8 22Q12 8 26 8Q38 6 44 16Q40 22 30 18Q20 22 8 22Z M92 22Q88 8 74 8Q62 6 56 16Q60 22 70 18Q80 22 92 22Z" fill="{hair}"/><path d="M14 14l3-4M22 11l2-5M30 10l1-5M86 14l-3-4M78 11l-2-5M70 10l-1-5" stroke="{hair}" stroke-width="2" stroke-linecap="round"/>',
+      raised: '<path d="M12 18Q26 0 42 12M58 12Q74 0 88 18" fill="none" stroke="{hair}" stroke-width="5" stroke-linecap="round"/>',
+      sharp: '<path d="M10 20L30 8L44 16M90 20L70 8L56 16" fill="none" stroke="{hair}" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>',
+      thin: '<path d="M14 18Q26 6 38 12M62 12Q74 6 86 18" fill="none" stroke="{hair}" stroke-width="2.6" stroke-linecap="round"/>',
+      short: '<path d="M20 16H36M64 16H80" stroke="{hair}" stroke-width="7" stroke-linecap="round"/>',
+      uni: '<path d="M10 20Q30 6 50 16Q70 6 90 20" fill="none" stroke="{hair}" stroke-width="6" stroke-linecap="round"/>'
+    }},
+    nose: {name: 'Нос', vb: '0 0 40 40', w: 34, x: 180, y: 205, m: 'none', tone: 'skin', items: {
+      dot: '<ellipse cx="20" cy="22" rx="6" ry="4.5" fill="{skinD}"/>',
+      button: '<circle cx="20" cy="20" r="11" fill="{skinD}"/><circle cx="16" cy="16" r="3.5" fill="#fff" opacity=".55"/>',
+      tiny: '<path d="M16 22Q20 26 24 22" fill="none" stroke="{skinD}" stroke-width="2.6" stroke-linecap="round"/>',
+      big: '<path d="M20 2C26 14 32 22 30 30C28 36 12 36 10 30C8 22 14 14 20 2Z" fill="{skinD}"/><ellipse cx="15" cy="30" rx="2.5" ry="2" fill="{skinDD}"/><ellipse cx="25" cy="30" rx="2.5" ry="2" fill="{skinDD}"/>',
+      long: '<path d="M18 2Q14 22 24 30Q20 36 12 32" fill="none" stroke="{skinD}" stroke-width="3" stroke-linecap="round"/>',
+      cat: '<path d="M10 14H30L20 26Z" fill="#FF8FB1" stroke="#D6336C" stroke-width="1.5" stroke-linejoin="round"/>',
+      dog: '<ellipse cx="20" cy="18" rx="12" ry="9" fill="#2B2B33"/><ellipse cx="16" cy="15" rx="4" ry="2.5" fill="#fff" opacity=".5"/>',
+      pig: '<ellipse cx="20" cy="20" rx="15" ry="11" fill="#FF9FB8" stroke="#E0607E" stroke-width="2"/><ellipse cx="14" cy="20" rx="3" ry="4.5" fill="#B83A5A"/><ellipse cx="26" cy="20" rx="3" ry="4.5" fill="#B83A5A"/>',
+      clown: '<circle cx="20" cy="20" r="14" fill="#FF3B5C"/><circle cx="15" cy="15" r="4" fill="#fff" opacity=".6"/>'
+    }},
+    mouth: {name: 'Рот', vb: '0 0 100 60', w: 96, x: 180, y: 240, m: 'talk', items: {
+      smile: `<path d="M18 18Q50 52 82 18" fill="none" stroke="${DARK}" stroke-width="5" stroke-linecap="round"/>`,
+      teeth: `<path d="M14 16Q50 22 86 16Q80 52 50 52Q20 52 14 16Z" fill="#fff" stroke="${DARK}" stroke-width="3"/><path d="M32 18V40M50 19V50M68 18V40M18 28Q50 36 82 28" stroke="${DARK}" stroke-width="1.6" fill="none"/>`,
+      laugh: `<path d="M12 12H88Q84 56 50 56Q16 56 12 12Z" fill="#7A1F2B" stroke="${DARK}" stroke-width="2"/><path d="M16 13H84V22Q50 26 16 22Z" fill="#fff"/><ellipse cx="50" cy="45" rx="18" ry="9" fill="#FF7A93"/>`,
+      grin: `<rect x="14" y="14" width="72" height="32" rx="14" fill="#fff" stroke="${DARK}" stroke-width="3"/><path d="M14 30H86M32 14V46M50 14V46M68 14V46" stroke="${DARK}" stroke-width="2"/>`,
+      braces: `<path d="M14 14H86Q82 50 50 50Q18 50 14 14Z" fill="#7A1F2B" stroke="${DARK}" stroke-width="2"/><path d="M16 15H84V26Q50 30 16 26Z" fill="#fff"/><path d="M18 22H82" stroke="#ADB5BD" stroke-width="2.5"/><g fill="#868E96"><rect x="24" y="19" width="5" height="6" rx="1"/><rect x="38" y="19" width="5" height="6" rx="1"/><rect x="52" y="19" width="5" height="6" rx="1"/><rect x="66" y="19" width="5" height="6" rx="1"/></g>`,
+      o: `<ellipse cx="50" cy="32" rx="13" ry="17" fill="#7A1F2B" stroke="${DARK}" stroke-width="2"/><ellipse cx="50" cy="40" rx="7" ry="5" fill="#FF7A93"/>`,
+      shock: `<ellipse cx="50" cy="32" rx="22" ry="24" fill="#7A1F2B" stroke="${DARK}" stroke-width="2.5"/><path d="M34 14Q50 20 66 14" fill="#fff"/><ellipse cx="50" cy="46" rx="12" ry="7" fill="#FF7A93"/>`,
+      sad: `<path d="M20 44Q50 14 80 44" fill="none" stroke="${DARK}" stroke-width="5" stroke-linecap="round"/>`,
+      tongue: `<path d="M18 16Q50 44 82 16" fill="none" stroke="${DARK}" stroke-width="5" stroke-linecap="round"/><path d="M52 29Q54 54 66 50Q76 46 68 24" fill="#FF6B86" stroke="#C93556" stroke-width="2"/>`,
+      lips: '<path d="M18 30Q30 16 42 20Q50 16 58 20Q70 16 82 30Q66 48 50 48Q34 48 18 30Z" fill="#E03131" stroke="#A61E1E" stroke-width="2"/><path d="M20 30Q50 36 80 30" stroke="#A61E1E" stroke-width="2" fill="none"/><ellipse cx="40" cy="38" rx="7" ry="2.5" fill="#fff" opacity=".45"/>',
+      kiss: '<path d="M28 30Q38 16 50 24Q62 16 72 30Q62 46 50 42Q38 46 28 30Z" fill="#FF4D6D" stroke="#C2183A" stroke-width="2"/><path d="M31 30Q50 34 69 30" stroke="#C2183A" stroke-width="2" fill="none"/><ellipse cx="42" cy="25" rx="4" ry="2" fill="#fff" opacity=".6"/>',
+      whistle: `<ellipse cx="62" cy="30" rx="8" ry="9" fill="#7A1F2B" stroke="${DARK}" stroke-width="3"/>`,
+      smirk: `<path d="M24 32Q56 40 80 18" fill="none" stroke="${DARK}" stroke-width="5" stroke-linecap="round"/>`,
+      wavy: `<path d="M18 30Q26 22 34 30T50 30T66 30T82 30" fill="none" stroke="${DARK}" stroke-width="4.5" stroke-linecap="round"/>`,
+      line: `<path d="M26 30H74" stroke="${DARK}" stroke-width="5" stroke-linecap="round"/>`,
+      cat: `<path d="M24 22Q37 40 50 22Q63 40 76 22" fill="none" stroke="${DARK}" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>`,
+      fangs: `<path d="M14 14H86Q80 50 50 50Q20 50 14 14Z" fill="#7A1F2B" stroke="${DARK}" stroke-width="2"/><path d="M28 15L33 30L38 15ZM62 15L67 30L72 15Z" fill="#fff"/>`
+    }},
+    beard: {name: 'Усы и борода', vb: '0 0 100 60', w: 190, x: 180, y: 262, m: 'none', tone: 'hair', items: {
+      mustache: {y: 228, w: 130, svg: '<path d="M50 20C42 10 26 10 16 22C10 30 2 28 0 22C4 36 24 40 38 30C44 26 48 24 50 24C52 24 56 26 62 30C76 40 96 36 100 22C98 28 90 30 84 22C74 10 58 10 50 20Z" fill="{hair}"/>'},
+      curly: {y: 228, w: 140, svg: '<path d="M50 22C40 12 22 14 14 24C10 30 4 30 4 24C2 18 10 14 12 18C8 10 0 16 0 24C0 34 14 36 26 30C36 26 44 24 50 26C56 24 64 26 74 30C86 36 100 34 100 24C100 16 92 10 88 18C90 14 98 18 96 24C96 30 90 30 86 24C78 14 60 12 50 22Z" fill="{hair}"/>'},
+      full: {y: 268, w: 250, svg: '<path d="M4 4C6 30 18 52 50 58C82 52 94 30 96 4C90 18 78 26 70 24C64 32 58 34 50 34C42 34 36 32 30 24C22 26 10 18 4 4Z" fill="{hair}"/><path d="M50 30C44 22 32 22 26 28C34 30 44 30 50 34C56 30 66 30 74 28C68 22 56 22 50 30Z" fill="{hairD}"/>'},
+      goatee: {y: 280, w: 90, svg: '<path d="M30 6Q50 16 70 6Q72 40 50 58Q28 40 30 6Z" fill="{hair}"/>'},
+      stubble: {y: 262, w: 210, svg: Array.from({length: 46}, (_, i)=>{ const a = Math.PI * (.08 + .84 * (i % 23) / 22), r = i < 23 ? 40 : 30; return `<circle cx="${(50 - Math.cos(a) * r).toFixed(1)}" cy="${(Math.sin(a) * r * .9 - 6).toFixed(1)}" r="1.4" fill="{hair}" opacity=".6"/>`; }).join('')},
+      handlebar: {y: 228, w: 160, svg: '<path d="M50 22C44 14 34 14 26 20C18 26 10 24 8 14C2 18 4 30 14 32C26 34 40 28 50 26C60 28 74 34 86 32C96 30 98 18 92 14C90 24 82 26 74 20C66 14 56 14 50 22Z" fill="{hair}"/>'}
+    }},
+    hair: {name: 'Волосы', vb: '0 0 100 60', w: 268, x: 180, y: 124, m: 'none', tone: 'hair', items: {
+      short: '<path d="M8 56C4 22 26 4 50 4C74 4 96 22 92 56C84 40 70 30 50 30C30 30 16 40 8 56Z" fill="{hair}"/><path d="M28 14Q44 8 62 12" stroke="{hairL}" stroke-width="3" fill="none" stroke-linecap="round" opacity=".7"/>',
+      sidepart: '<path d="M8 58C2 24 24 4 52 4C80 4 98 24 92 58C88 40 76 28 60 24C50 34 30 40 14 44C12 48 10 52 8 58Z" fill="{hair}"/><path d="M60 24Q58 14 52 6" stroke="{hairD}" stroke-width="2" fill="none"/>',
+      curly: Array.from({length: 9}, (_, i)=> `<circle cx="${10 + i * 10}" cy="${26 - Math.sin(i / 8 * Math.PI) * 18}" r="13" fill="{hair}"/>`).join('') + '<path d="M6 40Q50 18 94 40V30H6Z" fill="{hair}"/>',
+      spiky: '<path d="M6 56L10 26L20 34L24 6L36 26L46 2L56 24L68 4L74 28L86 12L88 34L96 30L94 56C84 40 68 32 50 32C32 32 16 40 6 56Z" fill="{hair}"/>',
+      mohawk: '<path d="M38 40L40 6L46 16L50 0L54 16L60 6L62 40C56 34 44 34 38 40Z" fill="{hair}"/><path d="M10 56C10 42 20 36 34 34M90 56C90 42 80 36 66 34" stroke="{hairD}" stroke-width="3" fill="none" opacity=".5"/>',
+      bangs: '<path d="M8 58C2 22 26 2 52 4C78 6 98 26 92 56C88 44 80 36 70 32C58 46 36 50 20 44C14 48 10 52 8 58Z" fill="{hair}"/>',
+      bun: '<circle cx="50" cy="10" r="12" fill="{hair}"/><path d="M8 56C4 24 26 12 50 12C74 12 96 24 92 56C84 42 70 34 50 34C30 34 16 42 8 56Z" fill="{hair}"/>',
+      buzz: '<path d="M10 54C8 24 28 8 50 8C72 8 92 24 90 54C82 38 68 32 50 32C32 32 18 38 10 54Z" fill="{hair}" opacity=".55"/>',
+      afro: {vb: '0 0 100 80', w: 330, y: 132, svg: Array.from({length: 16}, (_, i)=>{ const a = Math.PI * (1.05 + i / 15 * .9 - .05), r = 34; return `<circle cx="${(50 + Math.cos(a) * r).toFixed(1)}" cy="${(48 + Math.sin(a) * r * .95).toFixed(1)}" r="15" fill="{hair}"/>`; }).join('') + '<path d="M10 60C10 30 28 18 50 18C72 18 90 30 90 60C80 46 66 42 50 42C34 42 20 46 10 60Z" fill="{hair}"/>'},
+      long: {vb: hairVB, w: 280, y: 198,
+        main: '<path d="M6 60C2 22 26 2 50 2C74 2 98 22 94 60C90 46 80 36 70 34C66 36 58 38 50 38C42 38 34 36 30 34C20 36 10 46 6 60Z" fill="{hair}"/>',
+        back: '<path d="M6 40C0 70 4 98 14 108H86C96 98 100 70 94 40Z" fill="{hairD}"/>'},
+      wavy: {vb: hairVB, w: 280, y: 198,
+        main: '<path d="M8 60C2 22 26 2 50 2C74 2 98 22 92 60C88 46 78 34 66 30C58 40 42 42 30 36C20 40 12 48 8 60Z" fill="{hair}"/>',
+        back: '<path d="M8 40C-2 60 10 70 4 84C0 96 12 104 18 108H82C88 104 100 96 96 84C90 70 102 60 92 40Z" fill="{hairD}"/>'},
+      bob: {vb: hairVB, w: 280, y: 198,
+        main: '<path d="M8 62C2 24 26 2 50 2C74 2 98 24 92 62C88 48 80 36 72 32C60 38 40 38 28 32C20 36 12 48 8 62Z" fill="{hair}"/>',
+        back: '<path d="M6 40C2 56 4 70 10 78H90C96 70 98 56 94 40Z" fill="{hairD}"/>'},
+      ponytail: {vb: hairVB, w: 280, y: 198, m: 'none',
+        main: '<path d="M8 58C4 24 26 6 50 6C74 6 96 24 92 58C84 42 70 32 50 32C30 32 16 42 8 58Z" fill="{hair}"/><circle cx="88" cy="22" r="6" fill="#E64980"/>',
+        back: '<path d="M88 22C104 30 100 60 96 80C94 92 98 100 92 104C88 90 86 70 84 50C83 40 84 30 88 22Z" fill="{hairD}"/>'},
+      pigtails: {vb: hairVB, w: 300, y: 198,
+        main: '<path d="M10 58C6 24 28 6 50 6C72 6 94 24 90 58C82 42 68 32 50 32C32 32 18 42 10 58Z" fill="{hair}"/><circle cx="8" cy="40" r="5" fill="#4C6EF5"/><circle cx="92" cy="40" r="5" fill="#4C6EF5"/>',
+        back: '<path d="M8 40C-6 52 -2 80 6 92C10 80 12 60 10 44Z M92 40C106 52 102 80 94 92C90 80 88 60 90 44Z" fill="{hairD}"/>'}
+    }},
+    glasses: {name: 'Очки', vb: '0 0 100 34', w: 176, x: 180, y: 174, m: 'none', tone: 'acc', items: {
+      round: '<circle cx="25" cy="17" r="15" fill="#A5D8FF" fill-opacity=".18" stroke="{acc}" stroke-width="3.5"/><circle cx="75" cy="17" r="15" fill="#A5D8FF" fill-opacity=".18" stroke="{acc}" stroke-width="3.5"/><path d="M40 15Q50 9 60 15M10 15L0 11M90 15L100 11" stroke="{acc}" stroke-width="3" fill="none"/>',
+      square: '<rect x="8" y="4" width="34" height="26" rx="5" fill="#A5D8FF" fill-opacity=".18" stroke="{acc}" stroke-width="3.5"/><rect x="58" y="4" width="34" height="26" rx="5" fill="#A5D8FF" fill-opacity=".18" stroke="{acc}" stroke-width="3.5"/><path d="M42 14H58M8 12L0 9M92 12L100 9" stroke="{acc}" stroke-width="3"/>',
+      nerd: '<rect x="6" y="3" width="38" height="28" rx="8" fill="#fff" fill-opacity=".15" stroke="{acc}" stroke-width="6"/><rect x="56" y="3" width="38" height="28" rx="8" fill="#fff" fill-opacity=".15" stroke="{acc}" stroke-width="6"/><path d="M44 14H56" stroke="{acc}" stroke-width="5"/>',
+      cateye: '<path d="M4 6Q24 2 44 10Q42 30 24 30Q8 30 4 6Z M96 6Q76 2 56 10Q58 30 76 30Q92 30 96 6Z" fill="#FFC9E0" fill-opacity=".25" stroke="{acc}" stroke-width="3.5" stroke-linejoin="round"/><path d="M44 13Q50 10 56 13" stroke="{acc}" stroke-width="3" fill="none"/>',
+      sun: '<path d="M6 8H44Q44 32 26 32Q8 32 6 8Z M56 8H94Q92 32 74 32Q56 32 56 8Z" fill="#1B1D27" stroke="{acc}" stroke-width="3"/><path d="M44 10H56M6 8L0 6M94 8L100 6" stroke="{acc}" stroke-width="3"/><path d="M12 12L22 22M62 12L72 22" stroke="#fff" stroke-width="2.5" opacity=".5"/>',
+      heart: '<path d="M25 32C6 20 4 6 16 4C21 3 24 7 25 10C26 7 29 3 34 4C46 6 44 20 25 32Z M75 32C56 20 54 6 66 4C71 3 74 7 75 10C76 7 79 3 84 4C96 6 94 20 75 32Z" fill="#FF3B5C" fill-opacity=".75" stroke="{acc}" stroke-width="2.5"/><path d="M42 12Q50 8 58 12" stroke="{acc}" stroke-width="3" fill="none"/>',
+      star: '<path d="M25 2L29 12L40 13L32 20L35 31L25 25L15 31L18 20L10 13L21 12Z M75 2L79 12L90 13L82 20L85 31L75 25L65 31L68 20L60 13L71 12Z" fill="#FFD23F" fill-opacity=".7" stroke="{acc}" stroke-width="2.5" stroke-linejoin="round"/><path d="M40 15H60" stroke="{acc}" stroke-width="3"/>',
+      threeD: '<rect x="6" y="5" width="38" height="24" rx="4" fill="#E03131" fill-opacity=".7" stroke="#F8F9FA" stroke-width="3"/><rect x="56" y="5" width="38" height="24" rx="4" fill="#228BE6" fill-opacity=".7" stroke="#F8F9FA" stroke-width="3"/><path d="M44 14H56" stroke="#F8F9FA" stroke-width="4"/>',
+      monocle: '<circle cx="75" cy="17" r="14" fill="#A5D8FF" fill-opacity=".2" stroke="{acc}" stroke-width="3"/><path d="M86 26Q92 34 88 34" stroke="{acc}" stroke-width="1.5" fill="none"/>'
+    }},
+    pattern: {name: 'Узоры', vb: '0 0 100 100', w: 250, x: 180, y: 192, m: 'none', items: {
+      freckles: [[28, 62], [32, 58], [34, 64], [24, 66], [38, 60], [72, 62], [68, 58], [66, 64], [76, 66], [62, 60]].map(([x, y])=> `<circle cx="${x}" cy="${y}" r="1.4" fill="#A0522D" opacity=".7"/>`).join(''),
+      whiskers: '<path d="M30 66L8 62M30 70L8 72M30 74L10 80M70 66L92 62M70 70L92 72M70 74L90 80" stroke="#2B2B33" stroke-width="1.6" stroke-linecap="round"/>',
+      tiger: '<path d="M10 40L24 44L12 48M90 40L76 44L88 48M44 10L50 22L56 10M14 60L26 62M86 60L74 62" stroke="#2B2B33" stroke-width="4" stroke-linecap="round" fill="none"/>',
+      hearts: '<path d="M24 66C18 62 16 58 19 56C21 55 23 56 24 58C25 56 27 55 29 56C32 58 30 62 24 66Z M76 66C70 62 68 58 71 56C73 55 75 56 76 58C77 56 79 55 81 56C84 58 82 62 76 66Z" fill="#FF3B5C"/>',
+      stars: '<path d="M22 58l2 4 4 .5-3 3 1 4-4-2-4 2 1-4-3-3 4-.5z M80 30l1.5 3 3 .4-2.2 2.2.6 3-2.9-1.5-2.9 1.5.6-3-2.2-2.2 3-.4z" fill="#FFD23F" stroke="#E0A800" stroke-width=".8"/>',
+      clown: '<path d="M30 30L34 42L30 54L26 42Z M70 30L74 42L70 54L66 42Z" fill="#4C6EF5" opacity=".8"/>',
+      plaster: '<g transform="rotate(-25 72 30)"><rect x="60" y="25" width="26" height="10" rx="4" fill="#F5C29A" stroke="#C68642" stroke-width="1"/><rect x="69" y="26" width="8" height="8" fill="#E0A774"/><circle cx="64" cy="30" r=".8" fill="#C68642"/><circle cx="82" cy="30" r=".8" fill="#C68642"/></g>',
+      scar: '<path d="M64 26L76 44M66 32L72 30M68 37L74 35M71 42L77 40" stroke="#C2255C" stroke-width="2" stroke-linecap="round" opacity=".7"/>',
+      mole: '<circle cx="68" cy="68" r="2.2" fill="#5C3A21"/>',
+      sweat: {m: 'drip', svg: '<path d="M84 22C88 30 90 34 86 38C82 41 78 37 80 32C81 28 83 26 84 22Z" fill="#74C0FC" stroke="#1C7ED6" stroke-width="1"/><ellipse cx="83" cy="33" rx="1.2" ry="2" fill="#fff"/>'},
+      tears: {m: 'drip', svg: '<path d="M28 44C32 52 34 58 30 62C26 65 22 61 24 56C25 52 27 48 28 44Z M72 44C76 52 78 58 74 62C70 65 66 61 68 56C69 52 71 48 72 44Z" fill="#74C0FC" stroke="#1C7ED6" stroke-width="1"/>'}
+    }},
+    blush: {name: 'Румянец', vb: '0 0 100 30', w: 190, x: 180, y: 215, m: 'pulse', items: {
+      pink: '<ellipse cx="18" cy="15" rx="14" ry="8" fill="#FF7A9A" opacity=".55"/><ellipse cx="82" cy="15" rx="14" ry="8" fill="#FF7A9A" opacity=".55"/>',
+      soft: '<defs><radialGradient id="bl"><stop offset="0" stop-color="#FF6B8A" stop-opacity=".7"/><stop offset="1" stop-color="#FF6B8A" stop-opacity="0"/></radialGradient></defs><ellipse cx="18" cy="15" rx="16" ry="10" fill="url(#bl)"/><ellipse cx="82" cy="15" rx="16" ry="10" fill="url(#bl)"/>',
+      lines: '<path d="M8 10L14 20M16 10L22 20M24 10L30 20M70 10L76 20M78 10L84 20M86 10L92 20" stroke="#FF4D6D" stroke-width="3" stroke-linecap="round"/>',
+      swirl: '<path d="M18 15m-6 0a6 6 0 1 0 12 0a4 4 0 1 0-8 0a2 2 0 1 0 4 0M82 15m-6 0a6 6 0 1 0 12 0a4 4 0 1 0-8 0a2 2 0 1 0 4 0" fill="none" stroke="#FF4D6D" stroke-width="2"/>'
+    }},
+    body: {name: 'Тело и одежда', vb: '0 0 100 50', w: 340, x: 180, y: 318, m: 'none', tone: 'cloth', items: {
+      tshirt: '<rect x="41" y="0" width="18" height="16" fill="{skinD}"/><path d="M2 50C2 30 14 18 34 14Q50 24 66 14C86 18 98 30 98 50Z" fill="{cloth}"/><path d="M34 14Q50 24 66 14" fill="none" stroke="{clothD}" stroke-width="2.5"/>',
+      vneck: '<rect x="41" y="0" width="18" height="20" fill="{skinD}"/><path d="M2 50C2 30 14 18 34 14L50 32L66 14C86 18 98 30 98 50Z" fill="{cloth}"/><path d="M34 14L50 32L66 14" fill="none" stroke="{clothD}" stroke-width="2.5"/>',
+      hoodie: '<path d="M26 8Q50 -4 74 8L70 20H30Z" fill="{clothD}"/><rect x="41" y="0" width="18" height="16" fill="{skinD}"/><path d="M2 50C2 30 14 18 32 12Q50 26 68 12C86 18 98 30 98 50Z" fill="{cloth}"/><path d="M42 22V36M58 22V36" stroke="#F8F9FA" stroke-width="2" stroke-linecap="round"/><path d="M30 42H70" stroke="{clothD}" stroke-width="2"/>',
+      suit: '<rect x="41" y="0" width="18" height="16" fill="{skinD}"/><path d="M2 50C2 30 14 18 34 14H66C86 18 98 30 98 50Z" fill="#2B2D42"/><path d="M36 14L50 34L64 14Z" fill="#fff"/><path d="M46 18L50 22L54 18L52 40L50 44L48 40Z" fill="{cloth}"/><path d="M36 14L44 30L34 26Z M64 14L56 30L66 26Z" fill="#1B1D2E"/>',
+      dress: '<rect x="41" y="0" width="18" height="20" fill="{skinD}"/><path d="M8 50C8 34 16 24 30 20Q50 30 70 20C84 24 92 34 92 50Z" fill="{cloth}"/><path d="M30 20C34 12 38 12 40 20M70 20C66 12 62 12 60 20" stroke="{cloth}" stroke-width="3" fill="none"/><path d="M30 36H70" stroke="#fff" stroke-width="2" opacity=".5"/>',
+      sweater: '<rect x="41" y="0" width="18" height="16" fill="{skinD}"/><path d="M2 50C2 30 14 18 34 14Q50 22 66 14C86 18 98 30 98 50Z" fill="{cloth}"/><path d="M34 14Q50 22 66 14" stroke="{clothD}" stroke-width="5" fill="none"/><path d="M50 44C42 38 40 34 43 32C45 31 48 32 50 35C52 32 55 31 57 32C60 34 58 38 50 44Z" fill="#fff" opacity=".9"/><path d="M10 40H22M78 40H90" stroke="{clothD}" stroke-width="3"/>',
+      sport: '<rect x="41" y="0" width="18" height="16" fill="{skinD}"/><path d="M2 50C2 30 14 18 34 14Q50 22 66 14C86 18 98 30 98 50Z" fill="{cloth}"/><path d="M34 14L40 50M66 14L60 50" stroke="#fff" stroke-width="3"/><text x="50" y="44" font-size="16" font-weight="900" text-anchor="middle" fill="#fff" font-family="Arial">10</text>',
+      tank: '<rect x="41" y="0" width="18" height="16" fill="{skinD}"/><path d="M2 50C2 32 12 20 26 16H74C88 20 98 32 98 50Z" fill="{skinD}"/><path d="M24 50V24Q30 18 34 16Q50 30 66 16Q70 18 76 24V50Z" fill="{cloth}"/>',
+      overall: '<rect x="41" y="0" width="18" height="16" fill="{skinD}"/><path d="M2 50C2 30 14 18 34 14Q50 22 66 14C86 18 98 30 98 50Z" fill="#F8F9FA"/><path d="M30 50V30H70V50Z" fill="{cloth}"/><path d="M30 30L26 16M70 30L74 16" stroke="{cloth}" stroke-width="6"/><circle cx="32" cy="32" r="2" fill="#FFD23F"/><circle cx="68" cy="32" r="2" fill="#FFD23F"/>'
+    }}
+  };
+  /* объёмные 3D-детали */
+  const EMO = {
+    hands: {name: 'Руки', list: ['👋', '👍', '👎', '✌️', '🫶', '✊', '👊', '👉', '👈', '☝️', '🤘', '🤙', '🤞', '👌', '🤌', '🖐️', '✋', '🙏', '👏', '🙌', '💪', '🤝', '🫵', '🤟', '🖖', '✍️', '🤳', '🫰'], w: 110, x: 285, y: 290, m: 'wave'},
+    hats: {name: 'Шапки', list: ['🎩', '👑', '🧢', '🎓', '⛑️', '👒', '🪖', '🎀', '🌸', '🌻', '🌺', '🎧', '🕶️', '👓', '🥽'], w: 150, x: 180, y: 72, m: 'none'},
+    props: {name: 'Предметы', list: ['☕', '🍕', '🍔', '🍦', '🍩', '🍿', '🥤', '🎮', '📱', '💻', '🎸', '🎤', '⚽', '🏀', '🎁', '🎈', '🌹', '💐', '📚', '💰', '🔑', '🧸', '🪄', '🍭'], w: 105, x: 85, y: 292, m: 'bob'},
+    pets: {name: 'Питомцы', list: ['🐶', '🐱', '🐰', '🦊', '🐻', '🐼', '🐨', '🐸', '🐥', '🦄', '🐢', '🐙', '🐹', '🦜'], w: 120, x: 70, y: 300, m: 'hop'},
+    fx: {name: 'Эффекты', list: ['❤️', '💕', '💖', '💔', '✨', '⭐', '🌟', '💧', '💦', '💤', '💢', '🔥', '🎉', '🎊', '💫', '💯', '💥', '🌈', '❄️', '🎵', '💬', '❓', '❗', '⚡', '☁️', '🌙', '☀️', '🫧'], w: 70, x: 300, y: 70, m: 'rise'}
+  };
+  const FX_MOT = {'❤️': 'rise', '💕': 'rise', '💖': 'beat', '💔': 'shake', '✨': 'twinkle', '⭐': 'twinkle', '🌟': 'twinkle', '💧': 'drip', '💦': 'drip', '💤': 'rise', '💢': 'pulse', '🔥': 'flicker', '🎉': 'jelly', '🎊': 'jelly', '💫': 'spin', '💯': 'beat', '💥': 'pulse', '🌈': 'float', '❄️': 'drip', '🎵': 'rise', '💬': 'pulse', '❓': 'hop', '❗': 'hop', '⚡': 'blink', '☁️': 'float', '🌙': 'swing', '☀️': 'spin', '🫧': 'rise'};
+  const HAT_MOT = {'👑': 'tilt', '🎩': 'tilt', '🧢': 'tilt', '🎓': 'tilt', '👒': 'tilt', '🎀': 'pulse', '🌸': 'twinkle', '🌻': 'twinkle', '🌺': 'twinkle'};
+  const HAT_POS = {'🕶️': [180, 172, 170], '👓': [180, 172, 170], '🥽': [180, 168, 180], '🎧': [180, 150, 290], '🎀': [250, 90, 90], '🌸': [255, 95, 80], '🌻': [255, 95, 80], '🌺': [255, 95, 80]};
+
+  /* порядок слоёв снизу вверх */
+  const Z = {back: 0, body: 1, ears: 2, face: 3, pattern: 4, blush: 5, nose: 6, mouth: 7, beard: 8, eyes: 9, pupil: 10, lid: 11, brows: 12, glasses: 13, hair: 14, hats: 15, props: 16, pets: 16, hands: 17, fx: 18, draw: 19};
+  const MOT = [['none', '⏸', 'Стоит'], ['lid', '😌', 'Веки моргают'], ['eyeblink', '😉', 'Моргает'], ['look', '👀', 'Смотрит'], ['raise', '🤨', 'Вверх-вниз'], ['talk', '🗣', 'Говорит'], ['wave', '👋', 'Машет'], ['swing', '〰️', 'Качается'], ['sway', '💇', 'Колышется'], ['tilt', '↩️', 'Наклон'], ['hop', '⬆️', 'Прыгает'], ['bob', '🎈', 'Плавает'], ['pulse', '💓', 'Пульсирует'], ['beat', '❤️', 'Сердце'], ['jelly', '🍮', 'Желе'], ['rise', '🫧', 'Улетает'], ['drip', '💧', 'Капает'], ['twinkle', '✨', 'Мерцает'], ['flicker', '🔥', 'Пламя'], ['spin', '🔄', 'Крутится'], ['float', '☁️', 'Парит'], ['shake', '🫨', 'Дрожит'], ['blink', '💡', 'Мигает']];
+  const ALL_MOT = [['none', 'Нет'], ['bob', 'Покачивание'], ['nod', 'Кивает'], ['jelly', 'Желе'], ['hop', 'Прыжки'], ['tilt', 'Наклоны']];
+  const COLORS = ['#111318', '#ffffff', '#ff3b5c', '#ff8a00', '#ffd23f', '#2fd36f', '#1fb8ff', '#4c6ef5', '#9b5cff', '#ff6fb0', '#8b5a2b', '#9aa3b2'];
+  const OUTLINES = [['none', 'Без контура'], ['#ffffff', 'Белый'], ['#111318', 'Чёрный'], ['color', 'Цветной']];
+  const TONES = {skin: ['Кожа', SKINS], eye: ['Глаза', EYES_C], hair: ['Волосы', HAIR_C], cloth: ['Одежда', CLOTH_C], acc: ['Оправа', ACC_C]};
+  const ROLE_NAME = {pupil: 'Зрачки', lid: 'Веки', back: 'Волосы сзади'};
+
+  /* деталь каталога → {vb, x, y, w, m, layers: {main, back, pupil, lid}} */
+  function itemOf(cat, id){
+    const P = PARTS[cat], it = P.items[id];
+    const o = typeof it === 'string' ? {svg: it} : it;
+    const layers = {};
+    if(o.svg) layers.main = o.svg;
+    ['main', 'back', 'pupil', 'lid'].forEach((r)=>{ if(o[r]) layers[r] = o[r]; });
+    return {vb: o.vb || P.vb, x: o.x ?? P.x, y: o.y ?? P.y, w: o.w || P.w, m: o.m || (layers.pupil ? 'none' : P.m), layers};
+  }
+  function svgFor(cat, id, role, col){
+    const it = itemOf(cat, id); let body = it.layers[role] || '';
+    const sk = col.skin, hr = col.hair, cl = col.cloth;
+    body = body.replace(/\{skinDD\}/g, shade(sk, -.4)).replace(/\{skinD\}/g, shade(sk, -.2)).replace(/\{skinL\}/g, shade(sk, .35)).replace(/\{skin\}/g, sk)
+      .replace(/\{eyeD\}/g, shade(col.eye, -.35)).replace(/\{eye\}/g, col.eye)
+      .replace(/\{hairD\}/g, shade(hr, -.25)).replace(/\{hairL\}/g, shade(hr, .35)).replace(/\{hair\}/g, hr)
+      .replace(/\{clothD\}/g, shade(cl, -.25)).replace(/\{cloth\}/g, cl).replace(/\{acc\}/g, col.acc);
+    const defs = `<defs><radialGradient id="g" cx="38%" cy="32%" r="75%"><stop offset="0" stop-color="${shade(sk, .3)}"/><stop offset=".6" stop-color="${sk}"/><stop offset="1" stop-color="${shade(sk, -.12)}"/></radialGradient></defs>`;
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${it.vb}">${defs}${body}</svg>`;
+  }
+  const svgUrl = (svg)=> 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+  const loadImg = (src, cors)=> new Promise((res, rej)=>{ const im = new Image(); if(cors) im.crossOrigin = 'anonymous'; im.onload = ()=> res(im); im.onerror = rej; im.src = src; });
+
+  function outlined(srcCanvas, color, px){
+    const w = srcCanvas.width + px * 2, h = srcCanvas.height + px * 2;
+    const c = document.createElement('canvas'); c.width = w; c.height = h; const g = c.getContext('2d');
+    const sil = document.createElement('canvas'); sil.width = w; sil.height = h; const sg = sil.getContext('2d');
+    for(let a = 0; a < 24; a++){ const t = a / 24 * Math.PI * 2; sg.drawImage(srcCanvas, px + Math.cos(t) * px, px + Math.sin(t) * px); }
+    sg.globalCompositeOperation = 'source-in'; sg.fillStyle = color; sg.fillRect(0, 0, w, h);
+    g.drawImage(sil, 0, 0); g.drawImage(srcCanvas, px, px);
+    return c;
+  }
+  function bbox(g){
+    const d = g.getImageData(0, 0, S, S).data; let x0 = S, y0 = S, x1 = -1, y1 = -1;
+    for(let y = 0; y < S; y++){ const row = y * S * 4; for(let x = 0; x < S; x++) if(d[row + x * 4 + 3] > 8){ if(x < x0) x0 = x; if(x > x1) x1 = x; if(y < y0) y0 = y; if(y > y1) y1 = y; } }
+    if(x1 < 0) return null; return {x: Math.max(0, x0 - 2), y: Math.max(0, y0 - 2), w: Math.min(S, x1 + 3) - Math.max(0, x0 - 2), h: Math.min(S, y1 + 3) - Math.max(0, y0 - 2)};
+  }
+
+  window.openLiveStickerMaker = function(done){
+    const ov = document.createElement('div'); ov.className = 'lsm lsm2';
+    ov.innerHTML = `<div class="lsm-card">
+      <div class="lsm-head"><button type="button" data-a="x">✕</button><b>Живой мемоджи</b><button type="button" data-a="play" class="lsm-play">▶ Смотреть</button><button type="button" data-a="ok" class="lsm-ok">Готово</button></div>
+      <div class="lsm-acts" data-no-swipe>
+        <button type="button" data-a="undo" title="Отменить">↶<small>Отменить</small></button><button type="button" data-a="redo" title="Вернуть">↷<small>Вернуть</small></button>
+        <button type="button" data-a="random">🎲<small>Случайный</small></button><button type="button" data-a="dup">⧉<small>Копия</small></button>
+        <button type="button" data-a="flip">⇋<small>Отразить</small></button><button type="button" data-a="up">⬆<small>Выше</small></button><button type="button" data-a="down">⬇<small>Ниже</small></button>
+        <button type="button" data-a="del" class="danger">🗑<small>Удалить</small></button><button type="button" data-a="clear">🧹<small>Всё заново</small></button></div>
+      <div class="lsm-stage" id="lsm-stage"><div class="ast lsm-prev" id="lsm-prev" style="display:none"></div>
+        <div class="lsm-sel" id="lsm-sel" style="display:none"><button type="button" class="lsm-h lsm-hx" data-h="del" aria-label="Удалить">✕</button><button type="button" class="lsm-h lsm-hr" data-h="rot" aria-label="Повернуть">⟳</button><button type="button" class="lsm-h lsm-hs" data-h="size" aria-label="Размер">↘</button></div></div>
+      <div class="lsm-tools" data-no-swipe>
+        <button type="button" data-tool="parts" class="on">🧩 Детали</button><button type="button" data-tool="pen">✏️ Кисть</button><button type="button" data-tool="erase">🧽 Ластик</button><button type="button" data-a="photo">🖼 Фото</button></div>
+      <div id="lsm-parts">
+        <div class="lsm-pcats" id="lsm-pcats" data-no-swipe></div>
+        <div class="lsm-pgrid" id="lsm-pgrid" data-no-swipe></div>
+        <div class="lsm-prow" id="lsm-tones" data-no-swipe></div>
+      </div>
+      <div id="lsm-draw" style="display:none">
+        <div class="lsm-row"><span>Толщина</span><input type="range" id="lsm-w" min="2" max="40" value="10"></div>
+        <div class="lsm-colors" id="lsm-colors" data-no-swipe>${COLORS.map((c, i)=> `<button type="button" data-col="${c}" class="${i ? '' : 'on'}" style="background:${c}"></button>`).join('')}</div>
+      </div>
+      <div class="lsm-l">Слои — нажмите, чтобы выбрать (на картинке: ✕ удалить, ⟳ повернуть, ↘ размер, два пальца — размер и поворот)</div>
+      <div class="lsm-layers" id="lsm-layers" data-no-swipe></div>
+      <div class="lsm-row" id="lsm-size-row"><span>Размер</span><input type="range" id="lsm-size" min="0.2" max="3" step="0.02" value="1"></div>
+      <div class="lsm-row" id="lsm-rot-row"><span>Поворот</span><input type="range" id="lsm-rot" min="-180" max="180" step="1" value="0"></div>
+      <div class="lsm-l">Как двигается выбранный слой</div>
+      <div class="lsm-mot" id="lsm-mot" data-no-swipe>${MOT.map(([k, i, n])=> `<button type="button" data-mot="${k}"><i>${i}</i><span>${n}</span></button>`).join('')}</div>
+      <div class="lsm-row"><span>Скорость</span><input type="range" id="lsm-sp" min="0.4" max="2.5" step="0.1" value="1"></div>
+      <div class="lsm-l">Вся фигура</div>
+      <div class="lsm-chips" id="lsm-all" data-no-swipe>${ALL_MOT.map(([k, n], i)=> `<button type="button" data-all="${k}" class="${i ? '' : 'on'}">${n}</button>`).join('')}</div>
+      <div class="lsm-l">Контур (стикер всегда без фона)</div>
+      <div class="lsm-chips" id="lsm-out" data-no-swipe>${OUTLINES.map(([k, n], i)=> `<button type="button" data-out="${k}" class="${i === 1 ? 'on' : ''}">${k.startsWith('#') ? `<i style="background:${k}"></i>` : ''}${n}</button>`).join('')}</div>
+      <div class="lsm-tip">Собирайте персонажа из деталей: тело, лицо, уши, глаза с живыми зрачками, брови, нос, рот, усы, причёски, очки, узоры, шапки, руки, предметы, питомцы и эффекты. У каждой детали своё движение — нажмите «▶ Смотреть». Любое действие можно отменить ↶.</div>
+    </div>`;
+    document.body.appendChild(ov); requestAnimationFrame(()=> ov.classList.add('on'));
+    const $ = (q)=> ov.querySelector(q), stage = $('#lsm-stage'), prev = $('#lsm-prev'), sel = $('#lsm-sel');
+    let layers = [], cur = -1, tool = 'parts', color = COLORS[0], width = 10, playing = false, allMot = 'none', outline = '#ffffff', pcat = 'face', gidSeq = 1;
+    const col = {skin: SKINS[1], eye: EYES_C[0], hair: HAIR_C[0], cloth: CLOTH_C[0], acc: ACC_C[0]};
+    const undo = [], redo = [];
+
+    /* ---------- слои ---------- */
+    function newLayer(name){
+      const cv = document.createElement('canvas'); cv.width = S; cv.height = S; cv.className = 'lsm-cv';
+      stage.insertBefore(cv, prev);
+      const L = {cv, g: cv.getContext('2d', {willReadFrequently: true}), m: 'none', sp: 1, name, part: null, gid: gidSeq++};
+      layers.push(L); return L;
+    }
+    const zOf = (L)=> (L.part ? (L.part.role !== 'main' ? Z[L.part.role] : (Z[L.part.cat] ?? 9)) : Z.draw) + ((L.geo && L.geo.z) || L.zb || 0);
+    function resort(){
+      const keep = layers[cur];
+      layers.sort((a, b)=> zOf(a) - zOf(b));
+      layers.forEach((x)=> stage.insertBefore(x.cv, prev));
+      cur = keep ? layers.indexOf(keep) : -1;
+    }
+    const group = (L)=> L ? layers.filter((x)=> x.gid === L.gid) : [];
+
+    const imgCache = new Map();
+    async function imgFor(p){
+      const key = p.svg ? `${p.cat}|${p.id}|${p.role}|${col.skin}|${col.eye}|${col.hair}|${col.cloth}|${col.acc}` : 'e|' + p.e;
+      if(imgCache.has(key)) return imgCache.get(key);
+      let im = null;
+      try{ im = p.svg ? await loadImg(svgUrl(svgFor(p.cat, p.id, p.role, col))) : await loadImg(window.emo3dUrl ? emo3dUrl(p.e) : '', true); }catch(e){ im = null; }
+      if(imgCache.size > 300) imgCache.clear();
+      imgCache.set(key, im); return im;
+    }
+    function drawPart(L, im){
+      const p = L.part, G = L.geo;
+      const w = G.w * G.s, ratio = im ? (im.naturalHeight / im.naturalWidth || 1) : 1, h = w * ratio;
+      L.g.setTransform(1, 0, 0, 1, 0, 0); L.g.clearRect(0, 0, S, S);
+      L.g.save(); L.g.translate(G.x, G.y); L.g.rotate((G.r || 0) * Math.PI / 180); L.g.scale(G.f || 1, 1);
+      if(im) L.g.drawImage(im, -w / 2, -h / 2, w, h);
+      else { L.g.font = (w * .8) + 'px sans-serif'; L.g.textAlign = 'center'; L.g.textBaseline = 'middle'; L.g.fillText(p.e || '?', 0, 0); }
+      L.g.restore();
+    }
+    async function renderPart(L){ if(!L.part) return; const im = await imgFor(L.part); drawPart(L, im); }
+    async function renderGroup(L){ for(const x of group(L)) await renderPart(x); }
+    /* пока тянем пальцем — без ожидания (картинки уже в памяти) */
+    let rafG = 0, rafL = null;
+    function renderGroupFast(L){ rafL = L; if(rafG) return; rafG = requestAnimationFrame(async ()=>{ rafG = 0; await renderGroup(rafL); placeSel(); }); }
+
+    /* ---------- выделение: рамка, ✕, ⟳, ↘ ---------- */
+    let selBox = null;
+    function measureSel(){
+      const L = layers[cur]; selBox = null;
+      if(!L || playing){ sel.style.display = 'none'; return; }
+      let b = null;
+      for(const x of group(L)){ const bb = bbox(x.g); if(!bb) continue; b = b ? {x: Math.min(b.x, bb.x), y: Math.min(b.y, bb.y), x2: Math.max(b.x2, bb.x + bb.w), y2: Math.max(b.y2, bb.y + bb.h)} : {x: bb.x, y: bb.y, x2: bb.x + bb.w, y2: bb.y + bb.h}; }
+      if(!b){ sel.style.display = 'none'; return; }
+      selBox = {x: b.x, y: b.y, w: b.x2 - b.x, h: b.y2 - b.y, gx: L.geo ? L.geo.x : 0, gy: L.geo ? L.geo.y : 0};
+      placeSel();
+    }
+    function placeSel(){
+      const L = layers[cur];
+      if(!selBox || !L || playing){ sel.style.display = 'none'; return; }
+      const dx = L.geo ? L.geo.x - selBox.gx : 0, dy = L.geo ? L.geo.y - selBox.gy : 0;
+      const pc = (v)=> (v / S * 100) + '%';
+      Object.assign(sel.style, {display: '', left: pc(selBox.x + dx), top: pc(selBox.y + dy), width: pc(Math.max(24, selBox.w)), height: pc(Math.max(24, selBox.h))});
+      sel.classList.toggle('nogeo', !L.part);
+    }
+
+    /* ---------- отменить / вернуть ---------- */
+    function snapshot(){
+      return {col: Object.assign({}, col), allMot, outline, cur, gidSeq,
+        layers: layers.map((L)=> ({part: L.part ? Object.assign({}, L.part) : null, geo: L.geo ? Object.assign({}, L.geo) : null, m: L.m, sp: L.sp, name: L.name, gid: L.gid, zb: L.zb || 0, draw: L.part ? null : L.g.getImageData(0, 0, S, S)}))};
+    }
+    function pushUndo(){ undo.push(snapshot()); if(undo.length > 60) undo.shift(); redo.length = 0; paintActs(); }
+    async function restore(st){
+      if(playing) stopPlay();
+      layers.forEach((L)=> L.cv.remove()); layers = [];
+      Object.assign(col, st.col); allMot = st.allMot; outline = st.outline; gidSeq = st.gidSeq;
+      const geos = {};
+      for(const s of st.layers){
+        const cv = document.createElement('canvas'); cv.width = S; cv.height = S; cv.className = 'lsm-cv'; stage.insertBefore(cv, prev);
+        const L = {cv, g: cv.getContext('2d', {willReadFrequently: true}), m: s.m, sp: s.sp, name: s.name, part: s.part ? Object.assign({}, s.part) : null, gid: s.gid, zb: s.zb || 0};
+        if(s.geo){ L.geo = geos[s.gid] || (geos[s.gid] = Object.assign({}, s.geo)); }
+        if(s.draw) L.g.putImageData(s.draw, 0, 0);
+        layers.push(L);
+      }
+      for(const L of layers) await renderPart(L);
+      cur = Math.min(st.cur, layers.length - 1);
+      layers.forEach((L)=> L.cv.classList.toggle('lsm-lid', !!(L.part && L.part.role === 'lid')));
+      paintParts(); paintUi(); measureSel();
+    }
+    function paintActs(){
+      const u = $('[data-a="undo"]'), r = $('[data-a="redo"]');
+      if(u) u.disabled = !undo.length; if(r) r.disabled = !redo.length;
+    }
+
+    /* ---------- добавить деталь ---------- */
+    /* лицо, глаза, рот… — одна на персонажа (заменяется); руки, эффекты, узоры… — можно несколько */
+    const SINGLE = new Set(['face', 'ears', 'eyes', 'brows', 'nose', 'mouth', 'beard', 'hair', 'glasses', 'body']);
+    async function addSvgPart(cat, id, opts){
+      if(playing) stopPlay();
+      if(!(opts && opts.noUndo)) pushUndo();
+      const it = itemOf(cat, id);
+      let old = SINGLE.has(cat) ? layers.find((x)=> x.part && x.part.cat === cat) : null;
+      let geo;
+      if(old){
+        const og = old.geo, P = PARTS[cat];
+        /* та же деталь, но другой формы — сохраняем положение и размер, если это обычная деталь */
+        const sameFrame = (itemOf(cat, old.part.id).vb === it.vb) && (old.part.baseW === it.w);
+        geo = sameFrame ? og : {x: it.x, y: it.y, w: it.w, s: 1, r: 0, f: 1, z: og.z || 0};
+        for(const x of group(old)) x.cv.remove();
+        layers = layers.filter((x)=> x.gid !== old.gid);
+      } else geo = {x: it.x, y: it.y, w: it.w, s: 1, r: 0, f: 1, z: 0};
+      if(opts && opts.geo) Object.assign(geo, opts.geo);
+      if(layers.length >= 30){ toast('Не больше 30 слоёв'); return; }
+      const gid = gidSeq++; let main = null;
+      for(const role of ['back', 'main', 'pupil', 'lid']){
+        if(!it.layers[role]) continue;
+        const L = newLayer(role === 'main' ? PARTS[cat].name : ROLE_NAME[role]);
+        L.gid = gid; L.geo = geo;
+        L.part = {svg: true, cat, id, role, baseW: it.w};
+        L.m = role === 'pupil' ? 'look' : role === 'lid' ? 'lid' : role === 'back' ? 'none' : it.m;
+        if(role === 'lid') L.cv.classList.add('lsm-lid');
+        if(role === 'main') main = L;
+        await renderPart(L);
+      }
+      resort(); cur = layers.indexOf(main || layers.find((x)=> x.gid === gid));
+      paintUi(); measureSel();
+    }
+    async function addEmo(cat, e, opts){
+      if(playing) stopPlay();
+      if(!(opts && opts.noUndo)) pushUndo();
+      if(layers.length >= 30){ toast('Не больше 30 слоёв'); return; }
+      const C = EMO[cat]; let x = C.x, y = C.y, w = C.w, m = C.m;
+      const n = layers.filter((L)=> L.part && L.part.cat === cat).length;
+      if(cat === 'fx'){ m = FX_MOT[e] || 'rise'; const spots = [[300, 70], [62, 80], [320, 170], [44, 200], [290, 40], [70, 40]]; [x, y] = spots[n % spots.length]; }
+      if(cat === 'hats'){ m = HAT_MOT[e] || 'none'; if(HAT_POS[e]) [x, y, w] = HAT_POS[e]; }
+      if(cat === 'hands' && n % 2) x = 75;
+      if(cat === 'props' && n % 2) x = 285;
+      if(cat === 'pets' && n % 2) x = 290;
+      const L = newLayer(e); L.geo = Object.assign({x, y, w, s: 1, r: 0, f: cat === 'hands' && n % 2 ? -1 : 1, z: 0}, (opts && opts.geo) || {});
+      L.part = {svg: false, cat, e, role: 'main'}; L.m = m;
+      await renderPart(L); resort(); cur = layers.indexOf(L);
+      paintUi(); measureSel();
+    }
+    function layerName(L){
+      if(!L.part) return L.name || 'Рисунок';
+      if(L.part.role !== 'main') return ROLE_NAME[L.part.role];
+      if(L.part.svg) return PARTS[L.part.cat].name;
+      return L.part.e;
+    }
+    function paintUi(){
+      $('#lsm-layers').innerHTML = layers.map((L, i)=> ({L, i})).reverse().map(({L, i})=> `<button type="button" data-ly="${i}" class="${i === cur ? 'on' : ''}${layers[cur] && layers[cur].gid === L.gid && i !== cur ? ' grp' : ''}"><b>${esc(layerName(L))}</b><small>${(MOT.find((m)=> m[0] === L.m) || MOT[0])[2]}</small></button>`).join('') + '<button type="button" data-a="add" class="add">＋ Рисунок</button>';
+      const L = layers[cur];
+      ov.querySelectorAll('[data-mot]').forEach((b)=> b.classList.toggle('on', !!L && b.dataset.mot === L.m));
+      $('#lsm-sp').value = L ? L.sp : 1;
+      $('#lsm-size-row').style.display = L && L.geo ? '' : 'none';
+      $('#lsm-rot-row').style.display = L && L.geo ? '' : 'none';
+      if(L && L.geo){ $('#lsm-size').value = L.geo.s; $('#lsm-rot').value = L.geo.r || 0; }
+      layers.forEach((x, i)=> x.cv.classList.toggle('dim', tool !== 'parts' && !playing && i !== cur));
+      ov.querySelectorAll('[data-all]').forEach((b)=> b.classList.toggle('on', b.dataset.all === allMot));
+      ov.querySelectorAll('[data-out]').forEach((b)=> b.classList.toggle('on', b.dataset.out === outline));
+      paintActs();
+    }
+
+    /* ---------- каталог ---------- */
+    const CATS = [['body', '👕 Тело'], ['face', '🙂 Лицо'], ['ears', '👂 Уши'], ['eyes', '👀 Глаза'], ['brows', '🤨 Брови'], ['nose', '👃 Нос'], ['mouth', '👄 Рот'], ['beard', '🧔 Усы'], ['hair', '💇 Волосы'], ['glasses', '👓 Очки'], ['pattern', '✨ Узоры'], ['blush', '😊 Румянец'], ['hats', '🎩 Шапки'], ['hands', '👋 Руки'], ['props', '☕ Предметы'], ['pets', '🐶 Питомцы'], ['fx', '💫 Эффекты']];
+    function previewSvg(cat, id){
+      const it = itemOf(cat, id);
+      /* в каталоге — все слои детали вместе (веки скрыты) */
+      const body = ['back', 'main', 'pupil'].map((r)=> it.layers[r] ? svgFor(cat, id, r, col).replace(/^<svg[^>]*>|<\/svg>$/g, '') : '').join('');
+      return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${it.vb}">${body}</svg>`;
+    }
+    function paintParts(){
+      $('#lsm-pcats').innerHTML = CATS.map(([k, n])=> `<button type="button" data-pcat="${k}" class="${k === pcat ? 'on' : ''}">${n}</button>`).join('');
+      const curId = (layers.find((x)=> x.part && x.part.cat === pcat && x.part.role === 'main') || {}).part;
+      if(PARTS[pcat]){
+        $('#lsm-pgrid').innerHTML = Object.keys(PARTS[pcat].items).map((id)=> `<button type="button" data-part="${pcat}:${id}" class="${curId && curId.id === id ? 'on' : ''}"><img src="${svgUrl(previewSvg(pcat, id))}" alt=""></button>`).join('')
+          + (SINGLE.has(pcat) ? `<button type="button" data-a="none" title="Убрать">🚫</button>` : '');
+      } else {
+        $('#lsm-pgrid').innerHTML = EMO[pcat].list.map((e)=> `<button type="button" data-emo="${pcat}:${e}"><img src="${window.emo3dUrl ? emo3dUrl(e) : ''}" alt="${esc(e)}" loading="lazy"></button>`).join('');
+      }
+      const tk = PARTS[pcat] && PARTS[pcat].tone;
+      const extra = pcat === 'body' ? ['cloth', 'skin'] : pcat === 'face' || pcat === 'ears' || pcat === 'nose' ? ['skin'] : tk ? [tk] : [];
+      $('#lsm-tones').innerHTML = extra.map((k)=> `<span>${TONES[k][0]}</span>` + TONES[k][1].map((c)=> `<button type="button" data-tone="${k}:${c}" class="${c === col[k] ? 'on' : ''}" style="background:${c}"></button>`).join('')).join('<i class="sep"></i>');
+    }
+    async function recolor(){ for(const L of layers) if(L.part && L.part.svg) await renderPart(L); paintParts(); measureSel(); }
+
+    async function randomChar(){
+      if(playing) stopPlay();
+      pushUndo();
+      layers.forEach((L)=> L.cv.remove()); layers = []; cur = -1;
+      const keys = (o)=> Object.keys(o);
+      col.skin = pickA(SKINS.slice(0, 7)); col.eye = pickA(EYES_C); col.hair = pickA(HAIR_C); col.cloth = pickA(CLOTH_C); col.acc = pickA(ACC_C);
+      const nu = {noUndo: true};
+      if(Math.random() < .75) await addSvgPart('body', pickA(keys(PARTS.body.items)), nu);
+      await addSvgPart('face', pickA(['round', 'oval', 'chubby', 'square', 'egg', 'round', 'oval', 'cat', 'bear', 'fox', 'panda']), nu);
+      if(Math.random() < .35) await addSvgPart('ears', pickA(['human', 'elf', 'earrings', 'bunny', 'halo', 'horns']), nu);
+      if(Math.random() < .8) await addSvgPart('hair', pickA(keys(PARTS.hair.items)), nu);
+      await addSvgPart('eyes', pickA(['live', 'livebig', 'lashes', 'anime', 'roundy', 'live', 'happy', 'hearts', 'stars', 'wink', 'cute', 'shine']), nu);
+      await addSvgPart('brows', pickA(keys(PARTS.brows.items)), nu);
+      await addSvgPart('nose', pickA(['dot', 'button', 'tiny', 'cat']), nu);
+      await addSvgPart('mouth', pickA(['smile', 'teeth', 'laugh', 'tongue', 'grin', 'o', 'cat', 'kiss', 'lips']), nu);
+      if(Math.random() < .2) await addSvgPart('beard', pickA(keys(PARTS.beard.items)), nu);
+      if(Math.random() < .3) await addSvgPart('glasses', pickA(keys(PARTS.glasses.items)), nu);
+      if(Math.random() < .5) await addSvgPart('blush', pickA(['pink', 'soft']), nu);
+      if(Math.random() < .3) await addSvgPart('pattern', pickA(['freckles', 'hearts', 'stars', 'sweat', 'plaster']), nu);
+      if(Math.random() < .6) await addEmo('hands', pickA(EMO.hands.list), nu);
+      if(Math.random() < .3) await addEmo('hats', pickA(['🎩', '👑', '🧢', '🎀', '🌸', '👒']), nu);
+      if(Math.random() < .25) await addEmo(Math.random() < .5 ? 'props' : 'pets', pickA(EMO[Math.random() < .5 ? 'props' : 'pets'].list), nu);
+      await addEmo('fx', pickA(['❤️', '✨', '💕', '⭐', '💫', '🎵']), nu);
+      allMot = pickA(['bob', 'nod', 'jelly', 'none']);
+      cur = layers.findIndex((L)=> L.part && L.part.cat === 'face');
+      paintParts(); paintUi(); startPlay();
+    }
+
+    /* ---------- пальцы на картинке ---------- */
+    const pos = (ev)=>{ const r = stage.getBoundingClientRect(); return {x: (ev.clientX - r.left) / r.width * S, y: (ev.clientY - r.top) / r.height * S}; };
+    function hitLayer(p){
+      for(let i = layers.length - 1; i >= 0; i--){
+        const L = layers[i]; if(L.part && L.part.role === 'lid') continue;
+        const d = L.g.getImageData(Math.max(0, Math.min(S - 1, p.x | 0)), Math.max(0, Math.min(S - 1, p.y | 0)), 1, 1).data;
+        if(d[3] > 20){ /* зрачки и веки выбираем вместе с глазами */ const m = group(L).find((x)=> x.part && x.part.role === 'main'); return layers.indexOf(m || L); }
+      }
+      return -1;
+    }
+    const pts = new Map();
+    let drawing = null, drag = null, pinch = null, handle = null, pendingSnap = null;
+    stage.addEventListener('pointerdown', (ev)=>{
+      if(playing) stopPlay();
+      const h = ev.target.closest && ev.target.closest('[data-h]');
+      const p = pos(ev);
+      stage.setPointerCapture(ev.pointerId);
+      pts.set(ev.pointerId, p);
+      const L = layers[cur];
+      if(h && L){
+        ev.preventDefault();
+        if(h.dataset.h === 'del'){ delGroup(); return; }
+        if(!L.geo) return;
+        pendingSnap = snapshot();
+        handle = {kind: h.dataset.h, L, cx: L.geo.x, cy: L.geo.y, s0: L.geo.s, r0: L.geo.r || 0, d0: Math.hypot(p.x - L.geo.x, p.y - L.geo.y) || 1, a0: Math.atan2(p.y - L.geo.y, p.x - L.geo.x)};
+        return;
+      }
+      if(pts.size === 2 && L && L.geo){
+        drag = null;
+        const [a, b] = Array.from(pts.values());
+        if(!pendingSnap) pendingSnap = snapshot();
+        pinch = {L, s0: L.geo.s, r0: L.geo.r || 0, d0: Math.hypot(b.x - a.x, b.y - a.y) || 1, a0: Math.atan2(b.y - a.y, b.x - a.x)};
+        return;
+      }
+      if(tool === 'parts'){
+        const i = hitLayer(p);
+        if(i < 0){ cur = -1; paintUi(); measureSel(); return; }
+        cur = i; paintUi(); measureSel();
+        const T = layers[i];
+        pendingSnap = snapshot();
+        drag = {L: T, start: p, ox: T.geo ? T.geo.x : 0, oy: T.geo ? T.geo.y : 0, snap: T.part ? null : T.g.getImageData(0, 0, S, S), moved: false};
+        return;
+      }
+      let D = layers[cur];
+      if(!D || D.part){ pushUndo(); D = newLayer('Рисунок'); resort(); cur = layers.indexOf(D); paintUi(); }
+      else pushUndo();
+      drawing = {last: p};
+      const g = D.g; g.lineCap = 'round'; g.lineJoin = 'round'; g.lineWidth = width;
+      g.globalCompositeOperation = tool === 'erase' ? 'destination-out' : 'source-over'; g.strokeStyle = color; g.fillStyle = color;
+      g.beginPath(); g.arc(p.x, p.y, width / 2, 0, Math.PI * 2); g.fill();
+    });
+    function commitPending(){ if(pendingSnap){ undo.push(pendingSnap); if(undo.length > 60) undo.shift(); redo.length = 0; pendingSnap = null; paintActs(); } }
+    stage.addEventListener('pointermove', (ev)=>{
+      if(!pts.has(ev.pointerId)) return;
+      const p = pos(ev); pts.set(ev.pointerId, p);
+      if(handle){
+        const G = handle.L.geo;
+        if(handle.kind === 'size') G.s = Math.max(.15, Math.min(4, handle.s0 * Math.hypot(p.x - handle.cx, p.y - handle.cy) / handle.d0));
+        if(handle.kind === 'rot') G.r = Math.round(handle.r0 + (Math.atan2(p.y - handle.cy, p.x - handle.cx) - handle.a0) * 180 / Math.PI);
+        commitPending(); selBox = null; sel.style.display = 'none'; renderGroupFast(handle.L); return;
+      }
+      if(pinch && pts.size >= 2){
+        const [a, b] = Array.from(pts.values()); const G = pinch.L.geo;
+        G.s = Math.max(.15, Math.min(4, pinch.s0 * Math.hypot(b.x - a.x, b.y - a.y) / pinch.d0));
+        G.r = Math.round(pinch.r0 + (Math.atan2(b.y - a.y, b.x - a.x) - pinch.a0) * 180 / Math.PI);
+        commitPending(); selBox = null; sel.style.display = 'none'; renderGroupFast(pinch.L); return;
+      }
+      if(drag){
+        const L = drag.L, dx = p.x - drag.start.x, dy = p.y - drag.start.y;
+        if(!drag.moved && Math.hypot(dx, dy) < 2) return;
+        drag.moved = true; commitPending();
+        if(L.geo){ L.geo.x = drag.ox + dx; L.geo.y = drag.oy + dy; renderGroupFast(L); }
+        else { L.g.clearRect(0, 0, S, S); L.g.putImageData(drag.snap, Math.round(dx), Math.round(dy)); placeSel(); }
+        return;
+      }
+      if(!drawing) return; const g = layers[cur].g, l = drawing.last;
+      g.beginPath(); g.moveTo(l.x, l.y); g.quadraticCurveTo(l.x, l.y, (l.x + p.x) / 2, (l.y + p.y) / 2); g.lineTo(p.x, p.y); g.stroke();
+      drawing.last = p;
+    });
+    const end = (ev)=>{
+      pts.delete(ev.pointerId);
+      if(drawing){ drawing = null; const L = layers[cur]; if(L) L.g.globalCompositeOperation = 'source-over'; }
+      const changed = !!(handle || pinch || (drag && drag.moved));
+      if(pts.size < 2) pinch = null;
+      if(!pts.size){ drag = null; handle = null; pendingSnap = null; }
+      if(changed){ paintUi(); setTimeout(measureSel, 30); }
+    };
+    stage.addEventListener('pointerup', end); stage.addEventListener('pointercancel', end);
+
+    function delGroup(){
+      const L = layers[cur]; if(!L) return;
+      if(playing) stopPlay();
+      pushUndo();
+      for(const x of group(L)) x.cv.remove();
+      layers = layers.filter((x)=> x.gid !== L.gid);
+      cur = Math.min(cur, layers.length - 1);
+      paintParts(); paintUi(); measureSel();
+      try{ haptic('buttons', 8); }catch(e){}
+    }
+
+    /* ---------- стикер ---------- */
+    const MOVING_OUT = new Set(['wave', 'rise', 'drip', 'float', 'hop', 'spin', 'twinkle', 'flicker', 'swing', 'tilt', 'shake']);
+    function build(){
+      const out = [];
+      const ocol = outline === 'color' ? color : outline;
+      const OW = 9;
+      if(ocol !== 'none'){
+        const u = document.createElement('canvas'); u.width = S; u.height = S; const ug = u.getContext('2d');
+        let any = false;
+        layers.forEach((L)=>{ if(!MOVING_OUT.has(L.m) && L.m !== 'lid'){ ug.drawImage(L.cv, 0, 0); any = true; } });
+        if(any){
+          const b = bbox(ug);
+          if(b){
+            const c = document.createElement('canvas'); c.width = b.w; c.height = b.h; c.getContext('2d').drawImage(u, b.x, b.y, b.w, b.h, 0, 0, b.w, b.h);
+            const o = outlined(c, ocol, OW);
+            const sil = document.createElement('canvas'); sil.width = o.width; sil.height = o.height; const sg = sil.getContext('2d');
+            sg.drawImage(o, 0, 0); sg.globalCompositeOperation = 'destination-out'; sg.drawImage(c, OW, OW);
+            out.push({src: sil.toDataURL('image/webp', .9), x: b.x - OW, y: b.y - OW, w: sil.width, h: sil.height, m: 'none', sp: 1, o: ''});
+          }
+        }
+      }
+      for(const L of layers){
+        const b = bbox(L.g); if(!b) continue;
+        let c = document.createElement('canvas'); c.width = b.w; c.height = b.h; c.getContext('2d').drawImage(L.cv, b.x, b.y, b.w, b.h, 0, 0, b.w, b.h);
+        let x = b.x, y = b.y;
+        if(ocol !== 'none' && MOVING_OUT.has(L.m)){ c = outlined(c, ocol, OW); x -= OW; y -= OW; }
+        out.push({src: c.toDataURL('image/webp', .9), x, y, w: c.width, h: c.height, m: L.m, sp: L.sp, o: (window.__AM_ORIGIN || {})[L.m] || ''});
+      }
+      return out;
+    }
+    function startPlay(){
+      const out = build(); if(!out.length) return;
+      playing = true; $('.lsm-play').textContent = '⏸ Стоп'; sel.style.display = 'none'; stage.classList.add('playing');
+      layers.forEach((L)=> L.cv.style.visibility = 'hidden');
+      prev.style.display = '';
+      window.__paintAnimSticker(prev, {size: S, layers: out, all: allMot});
+      prev.classList.add('lsm-prev'); prev.id = 'lsm-prev';
+    }
+    function stopPlay(){ playing = false; stage.classList.remove('playing'); $('.lsm-play').textContent = '▶ Смотреть'; prev.style.display = 'none'; prev.innerHTML = ''; layers.forEach((L)=> L.cv.style.visibility = ''); paintUi(); measureSel(); }
+    async function finish(){
+      const out = build();
+      if(!out.length){ toast('Добавьте детали или нарисуйте что-нибудь'); return; }
+      /* обложка — все детали вместе (веки открыты), без фона */
+      const flat = document.createElement('canvas'); flat.width = S; flat.height = S; const fg = flat.getContext('2d');
+      for(const L of out){ if(L.m === 'lid') continue; try{ const im = await loadImg(L.src); fg.drawImage(im, L.x, L.y, L.w, L.h); }catch(e){} }
+      const obj = {v: 2, size: S, e: '🙂', layers: out, all: allMot, flat: flat.toDataURL('image/webp', .9)};
+      const btn = $('.lsm-ok'); btn.disabled = true; btn.textContent = 'Сохраняю…';
+      try{
+        await window.__addMySticker('data:application/json;base64,' + b64u(JSON.stringify(obj)), '🙂');
+        toast('Живой мемоджи сохранён в «Мои стикеры»'); try{ haptic('buttons', [10, 30, 10]); }catch(e){}
+        close(); done && done();
+      }catch(e){ console.warn('memoji', e); toast('Не удалось сохранить'); btn.disabled = false; btn.textContent = 'Готово'; }
+    }
+    const close = ()=>{ ov.classList.remove('on'); setTimeout(()=> ov.remove(), 220); };
+    function setTool(t){
+      tool = t;
+      ov.querySelectorAll('[data-tool]').forEach((b)=> b.classList.toggle('on', b.dataset.tool === t));
+      $('#lsm-parts').style.display = t === 'parts' ? '' : 'none';
+      $('#lsm-draw').style.display = (t === 'pen' || t === 'erase') ? '' : 'none';
+      stage.classList.toggle('drawing', t !== 'parts');
+      paintUi(); measureSel();
+    }
+    ov.addEventListener('click', async (ev)=>{
+      const t = ev.target;
+      if(t.closest('[data-h]')) return;
+      const ly = t.closest('[data-ly]'); if(ly){ cur = +ly.dataset.ly; if(playing) stopPlay(); paintUi(); measureSel(); return; }
+      const mo = t.closest('[data-mot]'); if(mo){ const L = layers[cur]; if(!L) return; pushUndo(); L.m = mo.dataset.mot; paintUi(); if(playing) startPlay(); try{ haptic('buttons', 5); }catch(e){} return; }
+      const al = t.closest('[data-all]'); if(al){ pushUndo(); allMot = al.dataset.all; paintUi(); if(playing) startPlay(); return; }
+      const ou = t.closest('[data-out]'); if(ou){ pushUndo(); outline = ou.dataset.out; paintUi(); if(playing) startPlay(); return; }
+      const tl = t.closest('[data-tool]'); if(tl){ if(playing) stopPlay(); setTool(tl.dataset.tool); return; }
+      const pc = t.closest('[data-pcat]'); if(pc){ pcat = pc.dataset.pcat; paintParts(); return; }
+      const pa = t.closest('[data-part]'); if(pa){ const [c, id] = pa.dataset.part.split(':'); await addSvgPart(c, id); paintParts(); return; }
+      const em = t.closest('[data-emo]'); if(em){ const i = em.dataset.emo.indexOf(':'); await addEmo(em.dataset.emo.slice(0, i), em.dataset.emo.slice(i + 1)); return; }
+      const tn = t.closest('[data-tone]'); if(tn){ const i = tn.dataset.tone.indexOf(':'); pushUndo(); col[tn.dataset.tone.slice(0, i)] = tn.dataset.tone.slice(i + 1); await recolor(); return; }
+      const co = t.closest('[data-col]'); if(co){ color = co.dataset.col; ov.querySelectorAll('[data-col]').forEach((b)=> b.classList.toggle('on', b === co)); if(tool === 'erase') setTool('pen'); return; }
+      const a = t.closest('[data-a]'); if(!a) return;
+      const k = a.dataset.a;
+      if(k === 'x'){ close(); return; }
+      if(k === 'add'){ if(playing) stopPlay(); pushUndo(); const L = newLayer('Рисунок'); resort(); cur = layers.indexOf(L); setTool('pen'); return; }
+      if(k === 'random'){ await randomChar(); return; }
+      if(k === 'play'){ playing ? stopPlay() : startPlay(); return; }
+      if(k === 'ok'){ if(playing) stopPlay(); finish(); return; }
+      if(k === 'undo'){ const st = undo.pop(); if(!st) return; redo.push(snapshot()); await restore(st); return; }
+      if(k === 'redo'){ const st = redo.pop(); if(!st) return; undo.push(snapshot()); await restore(st); return; }
+      if(k === 'del'){ delGroup(); return; }
+      if(k === 'none'){ const L = layers.find((x)=> x.part && x.part.cat === pcat); if(!L) return; cur = layers.indexOf(L); delGroup(); return; }
+      if(k === 'clear'){ if(playing) stopPlay(); pushUndo(); layers.forEach((L)=> L.cv.remove()); layers = []; cur = -1; paintParts(); paintUi(); measureSel(); return; }
+      if(k === 'flip' || k === 'up' || k === 'down' || k === 'dup'){
+        const L = layers[cur]; if(!L) return; if(playing) stopPlay();
+        pushUndo();
+        if(!L.geo && k === 'flip'){ const c = document.createElement('canvas'); c.width = S; c.height = S; const g = c.getContext('2d'); g.translate(S, 0); g.scale(-1, 1); g.drawImage(L.cv, 0, 0); L.g.clearRect(0, 0, S, S); L.g.drawImage(c, 0, 0); measureSel(); return; }
+        if(k === 'flip'){ L.geo.f = -(L.geo.f || 1); await renderGroup(L); measureSel(); return; }
+        if(k === 'up' || k === 'down'){
+          const zs = group(L);
+          for(const x of zs){ if(x.geo) x.geo.z = (x.geo.z || 0) + (k === 'up' ? 1.5 : -1.5); else x.zb = (x.zb || 0) + (k === 'up' ? 1.5 : -1.5); }
+          resort(); paintUi(); return;
+        }
+        if(k === 'dup'){
+          if(layers.length + group(L).length > 30){ toast('Не больше 30 слоёв'); return; }
+          const gid = gidSeq++; const geo = L.geo ? Object.assign({}, L.geo, {x: L.geo.x + 24, y: L.geo.y + 12}) : null; let first = null;
+          for(const x of group(L)){
+            const N = newLayer(x.name); N.gid = gid; N.m = x.m; N.sp = x.sp;
+            if(x.part){ N.part = Object.assign({}, x.part); N.geo = geo; if(x.part.role === 'lid') N.cv.classList.add('lsm-lid'); await renderPart(N); }
+            else N.g.drawImage(x.cv, 24, 12);
+            if(!first || (x.part && x.part.role === 'main')) first = N;
+          }
+          resort(); cur = layers.indexOf(first); paintUi(); measureSel(); return;
+        }
+      }
+      if(k === 'photo'){
+        const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/*';
+        inp.onchange = ()=>{ const f = inp.files && inp.files[0]; if(!f) return; const u = URL.createObjectURL(f); const im = new Image(); im.onload = ()=>{ pushUndo(); const L = newLayer('Фото'); const k2 = Math.min(S / im.width, S / im.height); L.g.drawImage(im, (S - im.width * k2) / 2, (S - im.height * k2) / 2, im.width * k2, im.height * k2); URL.revokeObjectURL(u); resort(); cur = layers.indexOf(L); paintUi(); measureSel(); }; im.src = u; };
+        inp.click(); return;
+      }
+    });
+    /* ползунки: одна отмена на всё перетаскивание ползунка */
+    let sliderSnap = null;
+    ov.addEventListener('pointerdown', (ev)=>{ if(ev.target.matches && ev.target.matches('#lsm-size, #lsm-rot, #lsm-sp')) sliderSnap = snapshot(); }, true);
+    ov.addEventListener('input', (ev)=>{
+      const L = layers[cur];
+      if(ev.target.id === 'lsm-w'){ width = +ev.target.value; return; }
+      if(sliderSnap){ undo.push(sliderSnap); if(undo.length > 60) undo.shift(); redo.length = 0; sliderSnap = null; paintActs(); }
+      if(ev.target.id === 'lsm-sp' && L){ L.sp = +ev.target.value; if(playing) startPlay(); }
+      if(ev.target.id === 'lsm-size' && L && L.geo){ L.geo.s = +ev.target.value; selBox = null; sel.style.display = 'none'; renderGroupFast(L); }
+      if(ev.target.id === 'lsm-rot' && L && L.geo){ L.geo.r = +ev.target.value; selBox = null; sel.style.display = 'none'; renderGroupFast(L); }
+    });
+    ov.addEventListener('change', (ev)=>{ if(ev.target.matches && ev.target.matches('#lsm-size, #lsm-rot')) measureSel(); });
+    paintParts(); setTool('parts');
+    randomChar().then(()=>{ undo.length = 0; redo.length = 0; paintActs(); });
+  };
+})();
