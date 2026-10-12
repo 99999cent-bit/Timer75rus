@@ -1024,9 +1024,15 @@ window.__appLoaded=!0;let firebaseConfig={apiKey:"AIzaSyCqHBCbqGSuo4V2FpQ9QICg00
       const dt = Math.min(64, now - (lastT || now)); lastT = now;
       const P = palette(), fr = frac(), w = wave(), idx = Math.min(N - 1, Math.floor(fr * N));
       const beat = .5 + .5 * Math.sin(now * .0023) * Math.sin(now * .0011 + 1.3);
-      const target = playing ? Math.min(1, w[idx] * .78 + beat * .32) : 0;
+      /* настоящий звук: бас, голос и верха двигают разные волны; нет доступа к звуку — запасная «живая» волна */
+      const Lv = window.__musicLevels, live = !!(Lv && Lv.live && playing);
+      const kk = w[idx], sn = (f, p)=> .5 + .5 * Math.sin(now * f + p);
+      const bs = live ? Lv.bass : Math.min(1, kk * (.45 + .55 * sn(.0021, idx)));
+      const md = live ? Lv.mid : Math.min(1, kk * (.4 + .6 * sn(.0034, 1.7 + idx * .3)));
+      const tr = live ? Lv.treb : (.25 + .5 * (1 - kk)) * sn(.0058, 3.1);
+      const target = playing ? (live ? Math.min(1, Lv.rms * 1.5 + bs * .3) : Math.min(1, w[idx] * .78 + beat * .32)) : 0;
       energy += (target - energy) * Math.min(1, dt / 240);
-      amp += ((playing ? (o.amp || 3.2) : 0) - amp) * Math.min(1, dt / 160); phase += dt * (0.0042 + energy * 0.0032);
+      amp += ((playing ? (o.amp || 3.2) : 0) - amp) * Math.min(1, dt / 160); phase += dt * (0.0042 + energy * 0.0032 + tr * 0.0026);
       const pad = 6, x = isRadio() ? W - pad : pad + fr * (W - pad * 2), my = H / 2, lw = o.lw || 3;
       g.clearRect(0, 0, W, H); g.lineCap = 'round'; g.lineJoin = 'round';
       /* ещё не сыгранная часть — тихая линия */
@@ -1034,9 +1040,9 @@ window.__appLoaded=!0;let firebaseConfig={apiKey:"AIzaSyCqHBCbqGSuo4V2FpQ9QICg00
       const wl = o.wl || 18, TAU = Math.PI * 2;
       const A = amp * (.7 + energy * 1.0), room = H / 2 - 2;
       const tp = (px)=>{ const k1 = Math.min(1, (px - pad) / 16), k2 = Math.min(1, (x - px) / 18); const k = Math.max(0, Math.min(k1, k2)); return k * k * (3 - 2 * k); };
-      const yA = (px)=> my + Math.min(room, A * 1.25) * tp(px) * Math.sin(px / (wl * 2.1) * TAU - phase * 1.15);
-      const yB = (px)=> my - Math.min(room, A * .95) * tp(px) * Math.sin(px / (wl * 1.25) * TAU + phase * .85 + 1.1);
-      const yC = (px)=> my + Math.min(room, A * .7) * tp(px) * Math.sin(px / (wl * .9) * TAU - phase * 1.6 + 2.2);
+      const yA = (px)=> my + Math.min(room, A * 1.25 * (.4 + bs * 1.15)) * tp(px) * Math.sin(px / (wl * 2.1) * TAU - phase * 1.15);
+      const yB = (px)=> my - Math.min(room, A * .95 * (.4 + md * 1.15)) * tp(px) * Math.sin(px / (wl * 1.25) * TAU + phase * .85 + 1.1);
+      const yC = (px)=> my + Math.min(room, A * .7 * (.3 + tr * 1.6)) * tp(px) * Math.sin(px / (wl * .9) * TAU - phase * 1.6 + 2.2);
       const yM = (px)=> my + Math.min(room, A) * tp(px) * Math.sin(px / (wl * 1.5) * TAU - phase);
       const x1 = x - 7;
       if(x1 > pad + 1){
@@ -1067,7 +1073,7 @@ window.__appLoaded=!0;let firebaseConfig={apiKey:"AIzaSyCqHBCbqGSuo4V2FpQ9QICg00
       g.globalAlpha = 1;
       if(!isRadio()){
         const kr = o.knob || 6;
-        if(energy > .02){ g.fillStyle = P.halo; g.beginPath(); g.arc(x, my, Math.min(H / 2, kr + 1.5 + energy * 3.2 * (.6 + .4 * Math.sin(now * .009))), 0, TAU); g.fill(); }
+        if(energy > .02){ g.fillStyle = P.halo; g.beginPath(); g.arc(x, my, Math.min(H / 2, kr + 1.5 + (energy * 1.6 + bs * 3.4)), 0, TAU); g.fill(); }
         g.fillStyle = P.ring; g.beginPath(); g.arc(x, my, kr, 0, TAU); g.fill(); g.fillStyle = P.knob; g.beginPath(); g.arc(x, my, Math.max(2, kr - 2), 0, TAU); g.fill();
       }
       if(playing || Math.abs(amp) > .05 || energy > .01 || sparks.length) raf = requestAnimationFrame(drawMini);
@@ -3092,20 +3098,29 @@ window.NOTO_ANIM_GROUPS=[{"name":"Смайлики","list":"😀|😃|😄|😁|
   /* ---------- музыка в фоне ---------- */
   if(typeof musicAudio !== 'undefined' && musicAudio){
     let last = '';
-    const upd = ()=>{
+    const absUrl = (u)=>{ try{ u = String(u || ''); if(!u || /^data:|^blob:/i.test(u)) return ''; return new URL(u, location.href).href; }catch(e){ return ''; } };
+    const upd = (force)=>{
       try{
         const t = (typeof music !== 'undefined' && music && music.track) || {};
+        const radio = t.src === 'radio';
         const playing = !musicAudio.paused && !musicAudio.ended;
-        const key = playing + '|' + (t.title || '') + '|' + (t.artist || '');
-        if(key === last) return; last = key;
-        A.mediaState(playing, String(t.title || ''), String(t.artist || (t.src === 'radio' ? 'Радио' : '')));
+        const d = musicAudio.duration, durMs = (!radio && isFinite(d) && d > 0) ? Math.round(d * 1000) : 0;
+        const posMs = durMs ? Math.round(Math.min(musicAudio.currentTime, d) * 1000) : -1;
+        const cover = absUrl(t.art);
+        const key = playing + '|' + (t.title || '') + '|' + (t.artist || '') + '|' + cover + '|' + durMs;
+        if(force !== true && key === last) return; last = key;
+        const artist = String(t.artist || (radio ? 'Радио' : ''));
+        if(A.mediaState2) A.mediaState2(playing, String(t.title || ''), artist, cover, posMs, durMs);
+        else A.mediaState(playing, String(t.title || ''), artist);
       }catch(e){}
     };
-    ['play', 'playing', 'pause', 'ended', 'emptied', 'loadedmetadata'].forEach(ev=> musicAudio.addEventListener(ev, upd));
+    ['play', 'playing', 'pause', 'ended', 'emptied', 'loadedmetadata', 'durationchange'].forEach(ev=> musicAudio.addEventListener(ev, ()=> upd()));
+    musicAudio.addEventListener('seeked', ()=> upd(true));          /* перемотали в приложении — ползунок в шторке тоже сдвигается */
   }
-  window.__nativeMedia = (a)=>{
+  window.__nativeMedia = (a, v)=>{
     try{
-      if(a === 'toggle') musicToggle();
+      if(a === 'seek'){ const ms = +v; if(isFinite(ms) && ms >= 0 && musicAudio.duration) musicAudio.currentTime = Math.min(ms / 1000, musicAudio.duration); }
+      else if(a === 'toggle') musicToggle();
       else if(a === 'next') musicNext();
       else if(a === 'prev') musicPrev();
       else if(a === 'pause'){ if(!musicAudio.paused) musicToggle(); }
@@ -6050,4 +6065,55 @@ Object.assign(window.__AM_ORIGIN || (window.__AM_ORIGIN = {}), {lid: '50% 0%', s
     const p = new URLSearchParams(location.search).get('target');
     if(p){ try{ history.replaceState(null, '', location.pathname + location.hash); }catch(_){} setTimeout(()=> window.__openTarget(p), 900); }
   }catch(_){}
+})();
+
+
+/* ---------- 10. анализ звука плеера: волна реагирует на тембр (бас / голос / верха) ---------- */
+(function musicTimbre(){
+  const a = document.getElementById('music-audio'); if(!a) return;
+  const L = window.__musicLevels = {live: false, bass: 0, mid: 0, treb: 0, rms: 0};
+  const AC = window.AudioContext || window.webkitAudioContext;
+  const cap = a.captureStream || a.mozCaptureStream;
+  if(!AC || !cap) return;                                   /* нет возможности — волна остаётся «живой» без анализа */
+  let ctx = null, an = null, src = null, mute = null, data = null, timer = 0, silent = 0, seen = false;
+  const mx = {b: .06, m: .06, t: .06, r: .06};              /* «автогромкость»: волна одинаково живая и на тихих, и на громких треках */
+
+  function teardown(){
+    try{ src && src.disconnect(); }catch(_){} try{ an && an.disconnect(); }catch(_){} try{ mute && mute.disconnect(); }catch(_){}
+    src = an = mute = null; L.live = false; L.bass = L.mid = L.treb = L.rms = 0; seen = false; silent = 0;
+  }
+  function build(){
+    try{
+      if(!ctx) ctx = new AC();
+      teardown();
+      const st = cap.call(a);                               /* копия звука для анализа: сам плеер не трогаем, звук не меняется */
+      if(!st || !st.getAudioTracks().length) return false;
+      src = ctx.createMediaStreamSource(st);
+      an = ctx.createAnalyser(); an.fftSize = 512; an.smoothingTimeConstant = .5;
+      mute = ctx.createGain(); mute.gain.value = 0;         /* на выход не идёт, нужен только чтобы браузер «тянул» звук */
+      src.connect(an); an.connect(mute); mute.connect(ctx.destination);
+      data = new Uint8Array(an.frequencyBinCount);
+      return true;
+    }catch(_){ teardown(); return false; }
+  }
+  const band = (lo, hi)=>{ let s = 0; for(let i = lo; i <= hi; i++) s += data[i]; return s / (hi - lo + 1) / 255; };
+  function tick(){
+    if(!an || a.paused){ return; }
+    an.getByteFrequencyData(data);
+    let total = 0; for(let i = 0; i < 128; i++) total += data[i];
+    if(total > 0){ seen = true; silent = 0; } else silent++;
+    const b = band(1, 3), m = band(4, 24), t = band(25, 110), r = band(1, 110);
+    mx.b = Math.max(mx.b * .998, b, .04); mx.m = Math.max(mx.m * .998, m, .04); mx.t = Math.max(mx.t * .998, t, .04); mx.r = Math.max(mx.r * .998, r, .04);
+    const k = .55;
+    L.bass += (Math.min(1, b / mx.b) - L.bass) * k; L.mid += (Math.min(1, m / mx.m) - L.mid) * k;
+    L.treb += (Math.min(1, t / mx.t) - L.treb) * k; L.rms += (Math.min(1, r / mx.r) - L.rms) * k;
+    L.live = seen || silent < 40;                           /* ~1,5 с нули подряд — значит, источник без доступа к звуку (радио и т.п.) → запасной режим */
+    if(!seen && silent >= 40) L.live = false;
+  }
+  const start = ()=>{ if(!timer) timer = setInterval(tick, 40); };
+  const stop = ()=>{ if(timer){ clearInterval(timer); timer = 0; } L.bass = L.mid = L.treb = L.rms = 0; };
+  a.addEventListener('loadstart', ()=>{ stop(); teardown(); });
+  a.addEventListener('playing', ()=>{ if(!an && !build()) return; try{ ctx.resume(); }catch(_){} start(); });
+  ['pause', 'ended', 'emptied'].forEach((ev)=> a.addEventListener(ev, stop));
+  document.addEventListener('visibilitychange', ()=>{ if(document.hidden) stop(); else if(!a.paused && an) start(); });
 })();
