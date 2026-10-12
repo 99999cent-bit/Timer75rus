@@ -6117,3 +6117,33 @@ Object.assign(window.__AM_ORIGIN || (window.__AM_ORIGIN = {}), {lid: '50% 0%', s
   ['pause', 'ended', 'emptied'].forEach((ev)=> a.addEventListener(ev, stop));
   document.addEventListener('visibilitychange', ()=>{ if(document.hidden) stop(); else if(!a.paused && an) start(); });
 })();
+
+
+/* ---------- 11. подарки в чате: открываются только по самому значку, не перекрывают соседей ---------- */
+(function giftHitArea(){
+  const st = document.createElement('style');
+  st.textContent = `
+  #messages .g2{isolation:isolate}
+  /* вся коробка и её украшения нажатие больше не ловят — оно проходит насквозь к соседнему содержимому */
+  #messages .g2 .gb, #messages .g2 .gb *{pointer-events:none!important}
+  /* нажимается только небольшая область в центре значка подарка */
+  #messages .g2 .gb > .gb-hit{pointer-events:auto!important;position:absolute;left:50%;top:50%;width:112px;height:118px;margin:-58px 0 0 -56px;z-index:7;border-radius:30px;background:transparent;-webkit-tap-highlight-color:transparent}
+  /* закрытая карточка с текстом не должна ловить нажатия */
+  #messages .g2:not(.card-on) .gcard{pointer-events:none!important}
+  /* выглядывающий персонаж не залезает на предыдущее сообщение — для него оставлено место */
+  #messages .g2[data-hero]:not([data-hero=""]){padding-top:38px}`;
+  document.head.appendChild(st);
+
+  let queued = false;
+  function ensure(){
+    queued = false;
+    document.querySelectorAll('#messages .g2 .gb').forEach((gb)=>{
+      if(gb.querySelector(':scope > .gb-hit')) return;
+      const h = document.createElement('i'); h.className = 'gb-hit'; h.setAttribute('aria-hidden', 'true'); gb.appendChild(h);
+    });
+  }
+  const queue = ()=>{ if(!queued){ queued = true; requestAnimationFrame(ensure); } };
+  const msgs = document.getElementById('messages');
+  if(msgs) new MutationObserver(queue).observe(msgs, {childList: true, subtree: true});
+  ensure();
+})();
