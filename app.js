@@ -6022,7 +6022,7 @@ Object.assign(window.__AM_ORIGIN || (window.__AM_ORIGIN = {}), {lid: '50% 0%', s
     if(!(await appReady(15000))) return;
     closeOverlays();
     /* ждём базу только там, где нужен номер истории; остальное открываем сразу */
-    const n = await findNotif(type, uid, ['new_story','story_like','story_reply','story_mention','story_cmt_react'].indexOf(type) >= 0 ? 20 : 1);
+    const n = await findNotif(type, uid, ['new_story','story_like','story_reply','story_mention','story_cmt_react','photo_like'].indexOf(type) >= 0 ? 20 : 1);
     const d = (n && n.data) || {};
     const from = d.fromUid || uid || '';
     markRead(n);
@@ -6033,6 +6033,13 @@ Object.assign(window.__AM_ORIGIN || (window.__AM_ORIGIN = {}), {lid: '50% 0%', s
       case 'new_story': case 'story_mention':
         if(from && typeof openStoryFromNotif === 'function') return openStoryFromNotif({data: {fromUid: from, storyId: d.storyId}});
         break;
+      case 'photo_like':
+        try{
+          const me = await getUserProfile(state.currentUser.uid);
+          const photos = me && me.photos && me.photos.length ? me.photos : (me && me.avatarUrl ? [me.avatarUrl] : []);
+          if(photos.length){ const i = Math.max(0, Math.min(photos.length - 1, +d.photoIndex || 0)); return openPhotoGallery(state.currentUser.uid, photos, i); }
+        }catch(_){}
+        break;
       case 'missed_call': if(from && typeof openChatWithUser === 'function') return openChatWithUser(from); break;
       case 'community_invite': if(typeof openNotifPanel === 'function') openNotifPanel(); return;
     }
@@ -6040,12 +6047,25 @@ Object.assign(window.__AM_ORIGIN || (window.__AM_ORIGIN = {}), {lid: '50% 0%', s
     if(typeof openNotifPanel === 'function') openNotifPanel();
   }
 
-  /* напоминание календаря: открыть календарь на вкладке «Задачи» */
-  async function openCalendar(){
+  /* напоминание календаря: открыть «Календарь», найти именно эту карточку, открыть её день и задачу */
+  const calStyle = document.createElement('style');
+  calStyle.textContent = '.cf-b.cal-flash{animation:calFlash 1.8s ease 1}@keyframes calFlash{0%,100%{box-shadow:0 0 0 0 transparent}25%,60%{box-shadow:0 0 0 3px var(--accent,#6c5ce7)}}';
+  document.head.appendChild(calStyle);
+  async function openCalendar(id){
     if(!(await appReady(15000))) return;
     closeOverlays();
-    try{ if(state.activeTab !== 'calendar') switchTab('calendar'); }catch(_){}
-    setTimeout(()=>{ try{ const b = document.querySelector('#cal-tab-root [data-t="tasks"]'); b && b.click(); }catch(_){} }, 350);
+    try{ if(window.openCalendarChat) window.openCalendarChat(); else switchTab('calendar'); }catch(_){}
+    if(!id) return;
+    const find = ()=> document.querySelector('#cc-feed [data-fopen="' + CSS.escape(id) + '"]');
+    let el = null;
+    for(let i = 0; i < 30 && !el; i++){ el = find(); if(!el) await sleep(150); }
+    if(!el){ try{ toast('Это напоминание уже закрыто'); }catch(_){} return; }
+    try{ el.scrollIntoView({block: 'center'}); }catch(_){}
+    await sleep(160);
+    try{ el.click(); }catch(_){}                             /* то же, что нажать на карточку: выбирается день и открывается задача */
+    await sleep(220);
+    const again = find();                                    /* после нажатия лента перерисовывается */
+    if(again){ try{ again.scrollIntoView({block: 'center'}); }catch(_){} again.classList.add('cal-flash'); setTimeout(()=> again.classList.remove('cal-flash'), 2000); }
   }
 
   let last = '', lastAt = 0;
@@ -6053,7 +6073,7 @@ Object.assign(window.__AM_ORIGIN || (window.__AM_ORIGIN = {}), {lid: '50% 0%', s
     raw = String(raw || ''); if(!raw) return;
     const now = Date.now(); if(raw === last && now - lastAt < 1500) return; last = raw; lastAt = now;
     const i = raw.indexOf(':'), kind = i < 0 ? raw : raw.slice(0, i), rest = i < 0 ? '' : raw.slice(i + 1);
-    if(kind === 'cal') return openCalendar();
+    if(kind === 'cal') return openCalendar(rest);
     if(kind === 'chat') return window.__nativeOpenChat && window.__nativeOpenChat(rest);
     return openByType(kind, rest);
   };
