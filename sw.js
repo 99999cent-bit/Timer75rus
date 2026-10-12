@@ -108,10 +108,23 @@ self.addEventListener('fetch', (event)=>{
 
 self.addEventListener('notificationclick', (event)=>{
   event.notification.close();
+  /* куда вести: чат, календарь (метка cal-…) или «тип:отправитель» (лайк, история, друг…) */
+  const n = event.notification, d = (n && n.data) || {}, tag = String((n && n.tag) || '');
+  let target = d.target || '';
+  if(!target){
+    if(d.chatId) target = 'chat:' + d.chatId;
+    else if(/^cal-/.test(tag)) target = 'cal:' + tag.slice(4);
+    else if(d.type && d.type !== 'test') target = d.type + ':' + (d.sender || '');
+  }
   event.waitUntil(
     self.clients.matchAll({type: 'window', includeUncontrolled: true}).then(list=>{
-      for(const c of list){ if('focus' in c) return c.focus(); }
-      return self.clients.openWindow('./');
+      for(const c of list){
+        if('focus' in c){
+          if(target){ try{ c.postMessage({type: 'open-target', target}); }catch(e){} }
+          return c.focus();
+        }
+      }
+      return self.clients.openWindow(target ? './?target=' + encodeURIComponent(target) : './');
     })
   );
 });

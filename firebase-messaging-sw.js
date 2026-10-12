@@ -78,7 +78,14 @@ self.addEventListener('notificationclick', (event) => {
   const fcm = d.FCM_MSG || {};
   const data = Object.assign({}, fcm.data || {}, d);
   const chatId = data.chatId || '';
-  const url = APP_BASE + (chatId ? '?chat=' + encodeURIComponent(chatId) : '');
+  /* не чат: календарь (cal-…) или «тип:отправитель» — приложение само откроет событие */
+  const tag = String((event.notification && event.notification.tag) || '');
+  let target = '';
+  if(!chatId){
+    if(/^cal-/.test(tag)) target = 'cal:' + tag.slice(4);
+    else if(data.type && data.type !== 'test' && data.type !== 'call_end') target = data.type + ':' + (data.sender || '');
+  }
+  const url = APP_BASE + (chatId ? '?chat=' + encodeURIComponent(chatId) : (target ? '?target=' + encodeURIComponent(target) : ''));
   const basePath = new URL(APP_BASE).pathname;
   const isApp = (u) => { try { const x = new URL(u); return x.origin === self.location.origin && (x.pathname === basePath || x.pathname === basePath + 'index.html'); } catch (e) { return false; } };
   event.stopImmediatePropagation();
@@ -87,7 +94,7 @@ self.addEventListener('notificationclick', (event) => {
     /* 1) уже открытое приложение — переключаемся на него и открываем чат */
     for (const c of all) {
       if (isApp(c.url)) {
-        try { c.postMessage({ type: 'open-chat', chatId }); } catch (e) {}
+        try { c.postMessage(!chatId && target ? { type: 'open-target', target } : { type: 'open-chat', chatId }); } catch (e) {}
         try { return await c.focus(); } catch (e) {}
       }
     }
