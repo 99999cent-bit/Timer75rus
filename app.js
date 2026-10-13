@@ -6167,3 +6167,935 @@ Object.assign(window.__AM_ORIGIN || (window.__AM_ORIGIN = {}), {lid: '50% 0%', s
   if(msgs) new MutationObserver(queue).observe(msgs, {childList: true, subtree: true});
   ensure();
 })();
+
+
+/* ---------- 12. ФОТОРЕДАКТОР: рисование, текст, стикеры, мозаика, фильтры, обрезка ---------- */
+(function photoEditor(){
+  if(window.openPhotoEditor) return;
+  const TAU = Math.PI * 2, clamp = (v, a, b)=> Math.max(a, Math.min(b, v));
+  const $ = (s, r)=> (r || document).querySelector(s);
+  const MAXS = 1600;                                   /* рабочий размер: хватает для чата, не тормозит на телефоне */
+
+  /* ----- иконки ----- */
+  const I = (p, extra)=> `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"${extra || ''}>${p}</svg>`;
+  const IC = {
+    brush: I('<path d="M3 21l3.6-.9L19.2 7.5a2.2 2.2 0 000-3.1l-.6-.6a2.2 2.2 0 00-3.1 0L2.9 16.4z"/><path d="M13.6 6.4l4 4"/>'),
+    shapes: I('<rect x="3.5" y="3.5" width="9" height="9" rx="2.2"/><circle cx="16.5" cy="16.5" r="4.6"/>'),
+    text: I('<path d="M4 7V5h16v2"/><path d="M12 5v14"/><path d="M9 19h6"/>'),
+    sticker: I('<circle cx="12" cy="12" r="9"/><path d="M8.4 14.4c.9 1.4 2.2 2.1 3.6 2.1s2.7-.7 3.6-2.1"/><circle cx="9" cy="10" r=".7" fill="currentColor"/><circle cx="15" cy="10" r=".7" fill="currentColor"/>'),
+    mosaic: I('<rect x="3" y="3" width="7" height="7" rx="1.2"/><rect x="14" y="3" width="7" height="7" rx="1.2"/><rect x="3" y="14" width="7" height="7" rx="1.2"/><rect x="14" y="14" width="7" height="7" rx="1.2"/>'),
+    filters: I('<circle cx="9" cy="12" r="6"/><circle cx="15" cy="12" r="6"/>'),
+    crop: I('<path d="M6 2v14a2 2 0 002 2h14"/><path d="M2 6h14a2 2 0 012 2v14"/>'),
+    undo: I('<path d="M9 14L4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 010 11H11"/>'),
+    redo: I('<path d="M15 14l5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 000 11H13"/>'),
+    close: I('<path d="M18 6L6 18M6 6l12 12"/>'),
+    check: I('<path d="M5 12.5l4.5 4.5L19 7.5"/>'),
+    download: I('<path d="M12 3v12"/><path d="M7 10.5l5 5 5-5"/><path d="M5 20h14"/>'),
+    send: I('<path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4z"/>'),
+    trash: I('<path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6.5 7l1 13h9l1-13"/>'),
+    rotL: I('<path d="M1.5 4.5v5h5"/><path d="M3.5 15a8.5 8.5 0 105-8.2L1.5 9.5"/>'),
+    rotR: I('<path d="M22.5 4.5v5h-5"/><path d="M20.5 15a8.5 8.5 0 11-5-8.2l7 2.7"/>'),
+    flip: I('<path d="M12 3v18"/><path d="M8 7L3 12l5 5V7z"/><path d="M16 7l5 5-5 5V7z"/>'),
+    plus: I('<path d="M12 5v14M5 12h14"/>'),
+    pipette: I('<path d="M20.5 3.5a2.6 2.6 0 00-3.7 0L14 6.3l-1-1-1.6 1.6 1 1-7.2 7.2-.9 3.9 3.9-.9 7.2-7.2 1 1 1.6-1.6-1-1 2.8-2.8a2.6 2.6 0 000-3.7z"/>'),
+    zoom: I('<circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/><path d="M8.5 11h5"/>'),
+    pen: I('<path d="M3 21l3.6-.9L19.2 7.5a2.2 2.2 0 000-3.1l-.6-.6a2.2 2.2 0 00-3.1 0L2.9 16.4z"/>'),
+    marker: I('<path d="M9 3l12 12-5 5L4 8z"/><path d="M4 8l-1 5 3 3 5-1"/>'),
+    neon: I('<path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/><circle cx="12" cy="12" r="2.6"/>'),
+    eraser: I('<path d="M20 20H9L3.6 14.6a2 2 0 010-2.8l8.2-8.2a2 2 0 012.8 0l5.8 5.8a2 2 0 010 2.8L13 20"/><path d="M8 9l7 7"/>'),
+    arrow: I('<path d="M5 19L19 5"/><path d="M9 5h10v10"/>'),
+    line: I('<path d="M4 20L20 4"/>'),
+    rect: I('<rect x="4" y="5.5" width="16" height="13" rx="2"/>'),
+    oval: I('<ellipse cx="12" cy="12" rx="8.5" ry="6.5"/>'),
+    blur: I('<circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="6.5" stroke-dasharray="2 3"/><circle cx="12" cy="12" r="9.5" stroke-dasharray="1 4"/>'),
+    alignL: I('<path d="M4 6h16M4 12h10M4 18h14"/>'),
+    alignC: I('<path d="M4 6h16M7 12h10M5 18h14"/>'),
+    alignR: I('<path d="M4 6h16M10 12h10M6 18h14"/>')
+  };
+
+  const PALETTE = ['#FFFFFF', '#111318', '#FF3B30', '#FF9500', '#FFD60A', '#34C759', '#00C7BE', '#4C6EF5', '#AF52DE', '#FF2D92'];
+  const FONTS = [
+    {id: 'sans',  name: 'Обычный',   css: '-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif', w: 600, st: ''},
+    {id: 'bold',  name: 'Жирный',    css: '"Arial Black","Segoe UI Black",Impact,sans-serif', w: 900, st: ''},
+    {id: 'serif', name: 'Классика',  css: 'Georgia,"Times New Roman",serif', w: 700, st: 'italic'},
+    {id: 'mono',  name: 'Печать',    css: '"SF Mono",Menlo,Consolas,"Courier New",monospace', w: 700, st: ''},
+    {id: 'hand',  name: 'Рукопись',  css: '"Segoe Print","Bradley Hand","Comic Sans MS",cursive', w: 700, st: ''}
+  ];
+  const HEROES = ['🐉','🦄','🐼','🦊','🐱','🐶','🦁','🐻','🐵','🐸','🐧','🐘','🦖','🐙','🐬','🐳','🤖','👻','👽','🧚','🧞','🧙','🎅','🎃','🤡','🥳','😎','🤩'];
+  const EMO = [
+    ['Персонажи', HEROES],
+    ['Эмоции', ['😀','😂','🤣','😊','😍','🥰','😘','😎','🤩','🥳','😏','🥺','😭','😡','🤯','😱','🤔','🙄','😴','🤮','🤗','🤭','😇','😈','💀','👻','🤡','👀']],
+    ['Жесты', ['👍','👎','👌','✌️','🤞','🤟','🤘','🤙','👋','👏','🙌','🫶','🤝','🙏','💪','👊','✊','☝️','👆','👇','👉','👈','🫵','💅']],
+    ['Сердца', ['❤️','🧡','💛','💚','💙','💜','🖤','🤍','🤎','💔','❣️','💕','💞','💓','💗','💖','💘','💝']],
+    ['Символы', ['🔥','✨','⭐','🌟','💫','⚡','💥','💯','✅','❌','❓','❗','‼️','⭕','🚫','💬','💭','🎯','🏆','👑','💎','🎉','🎊','🎁','🎈','📍','📌','🔔']],
+    ['Природа', ['🌹','🌸','🌺','🌻','🌈','☀️','🌙','☁️','❄️','🍀','🌴','🌊','🦋','🐝','🐞','🌍']],
+    ['Еда', ['🍕','🍔','🍟','🌭','🍿','🍩','🍪','🎂','🍰','🍫','🍭','🍦','🍎','🍓','🍉','🥑','☕','🍺','🍷','🥂']]
+  ];
+
+  /* ----- состояние ----- */
+  const ED = {
+    open: false, root: null, opts: {}, tool: 'brush', brush: 'pen', shape: 'arrow', shapeFill: false, mosaic: 'pix',
+    color: '#FF3B30', hue: 3, light: 55, size: 24, orig: null, stack: [], redo: [], baseIdx: -1,
+    W: 0, H: 0, base: null, fbase: null, draw: null, live: null, tmp: null, pix: null, blur: null, pixKey: '',
+    sel: null, mode: '', crop: null, cropAspect: 0, zoom: {k: 1, tx: 0, ty: 0}, raf: 0, fp: null,
+    textDraft: {font: 'bold', align: 'center', bg: 'none'}, stk: new Map(), dirty: false, eyedrop: false
+  };
+  const P = new Map();                                 /* активные касания */
+  let G = {};                                          /* текущий жест */
+  const mk = (w, h)=>{ const c = document.createElement('canvas'); c.width = Math.max(1, Math.round(w)); c.height = Math.max(1, Math.round(h)); return c; };
+  const mctx = mk(4, 4).getContext('2d');
+
+  /* ================= ФИЛЬТРЫ ================= */
+  const PRESETS = [
+    {id: 'none', name: 'Оригинал', p: {}},
+    {id: 'vivid', name: 'Яркий', p: {ct: .18, sa: .38, br: .03}},
+    {id: 'warm', name: 'Тёплый', p: {wm: .55, sa: .12, br: .03}},
+    {id: 'cool', name: 'Холод', p: {wm: -.5, sa: .05, ct: .06}},
+    {id: 'mono', name: 'Ч/Б', p: {mono: 1, ct: .15}},
+    {id: 'sepia', name: 'Сепия', p: {sepia: 1, ct: .05}},
+    {id: 'fade', name: 'Дымка', p: {fd: .8, sa: -.15, br: .05}},
+    {id: 'cine', name: 'Кино', p: {cine: 1, ct: .16, sa: .1}},
+    {id: 'drama', name: 'Драма', p: {ct: .42, sa: -.12, br: -.04}},
+    {id: 'pop', name: 'Поп', p: {sa: .7, ct: .22, wm: .12}}
+  ];
+  function filterCanvas(src, p, dst){
+    const w = src.width, h = src.height, c = dst.getContext('2d');
+    c.clearRect(0, 0, w, h); c.drawImage(src, 0, 0);
+    if(!p || !Object.keys(p).length) return dst;
+    const img = c.getImageData(0, 0, w, h), d = img.data;
+    const br = (p.br || 0) * 110, ct = 1 + (p.ct || 0), sa = 1 + (p.sa || 0), wm = (p.wm || 0) * 34, fd = p.fd || 0;
+    for(let i = 0; i < d.length; i += 4){
+      let r = d[i], g = d[i + 1], b = d[i + 2];
+      r += br; g += br; b += br;
+      r = (r - 128) * ct + 128; g = (g - 128) * ct + 128; b = (b - 128) * ct + 128;
+      const l = .299 * r + .587 * g + .114 * b;
+      if(p.mono){ r = g = b = l; }
+      else if(p.sepia){ const nr = l * 1.07 + 22, ng = l * .95 + 8, nb = l * .78 - 6; r = nr; g = ng; b = nb; }
+      else { r = l + (r - l) * sa; g = l + (g - l) * sa; b = l + (b - l) * sa; }
+      if(wm){ r += wm; b -= wm; g += wm * .12; }
+      if(p.cine){ const k = (l - 128) / 128; r += k * 20 + 6; g += k * 4 - 2; b += -k * 22 + 10; }   /* тени → бирюза, света → оранжевый */
+      if(fd){ r = r * (1 - fd * .22) + fd * 40; g = g * (1 - fd * .22) + fd * 42; b = b * (1 - fd * .22) + fd * 48; }
+      d[i] = r < 0 ? 0 : r > 255 ? 255 : r; d[i + 1] = g < 0 ? 0 : g > 255 ? 255 : g; d[i + 2] = b < 0 ? 0 : b > 255 ? 255 : b;
+    }
+    c.putImageData(img, 0, 0);
+    return dst;
+  }
+
+  /* ================= ИСТОРИЯ ================= */
+  const lastBake = ()=>{ for(let i = ED.stack.length - 1; i >= 0; i--) if(ED.stack[i].t === 'bake') return i; return -1; };
+  const opsAfterBake = ()=> ED.stack.slice(lastBake() + 1);
+  const curFilter = ()=>{ const o = opsAfterBake().filter((x)=> x.t === 'filter').pop(); return o ? o.p : null; };
+  const curObjs = ()=>{ const o = opsAfterBake().filter((x)=> x.t === 'objs').pop(); return o ? o.list : []; };
+  const cloneObjs = (l)=> l.map((o)=> Object.assign({}, o));
+  const DRAWOPS = {stroke: 1, erase: 1, shape: 1, mosaic: 1};
+
+  function pushOp(op){
+    ED.stack.push(op); ED.redo = []; ED.dirty = true; syncUI();
+  }
+  function undo(){
+    if(G.draw || G.obj || G.pinch || !ED.stack.length) return;
+    const op = ED.stack.pop(); ED.redo.push(op); afterHistory(op);
+  }
+  function redo(){
+    if(G.draw || G.obj || G.pinch || !ED.redo.length) return;
+    const op = ED.redo.pop(); ED.stack.push(op); afterHistory(op);
+  }
+  function afterHistory(op){
+    ED.sel = null; refreshBase(false); syncUI();
+    if(op.t === 'bake') relayout();
+  }
+
+  /* ================= ПОДГОТОВКА СЛОЁВ ================= */
+  function refreshBase(force){
+    const bi = lastBake(), baseCv = bi >= 0 ? ED.stack[bi].after : ED.orig;
+    const changed = force || baseCv !== ED.base;
+    ED.baseIdx = bi;
+    if(changed){
+      ED.base = baseCv; ED.W = baseCv.width; ED.H = baseCv.height;
+      ED.fbase = mk(ED.W, ED.H); ED.draw = mk(ED.W, ED.H); ED.live = mk(ED.W, ED.H); ED.tmp = mk(ED.W, ED.H);
+      ED.cv.width = ED.ov.width = ED.W; ED.cv.height = ED.ov.height = ED.H;
+      ED.pixKey = ''; ED.thumbBase = null;
+    }
+    ED.fp = Object.assign({}, curFilter() || {});
+    applyFilterNow();
+    rebuildDraw();
+    invalidate();
+  }
+  function applyFilterNow(){
+    filterCanvas(ED.base, ED.fp, ED.fbase);
+    ED.pixKey = '';
+  }
+  function ensureFx(){                                 /* мозаика и размытие считаем только когда они нужны */
+    const key = ED.baseIdx + '|' + JSON.stringify(ED.fp);
+    if(ED.pixKey === key && ED.pix) return;
+    const w = ED.W, h = ED.H, block = Math.max(6, Math.round(Math.max(w, h) / 46));
+    const sm = mk(Math.ceil(w / block), Math.ceil(h / block)), sc = sm.getContext('2d');
+    sc.imageSmoothingEnabled = true; sc.drawImage(ED.fbase, 0, 0, sm.width, sm.height);
+    ED.pix = mk(w, h); const pc = ED.pix.getContext('2d'); pc.imageSmoothingEnabled = false; pc.drawImage(sm, 0, 0, w, h);
+    const bs = Math.max(3, Math.round(Math.max(w, h) / 38)), bl = mk(Math.ceil(w / bs), Math.ceil(h / bs)); bl.getContext('2d').drawImage(ED.fbase, 0, 0, bl.width, bl.height);
+    const b2 = mk(Math.ceil(w / (bs * 2)), Math.ceil(h / (bs * 2))); b2.getContext('2d').drawImage(bl, 0, 0, b2.width, b2.height);
+    ED.blur = mk(w, h); const bc = ED.blur.getContext('2d'); bc.imageSmoothingEnabled = true; bc.imageSmoothingQuality = 'high';
+    bc.drawImage(b2, 0, 0, bl.width, bl.height); bc.drawImage(bl, 0, 0, w, h);
+    ED.pixKey = key;
+  }
+  function rebuildDraw(){
+    const c = ED.draw.getContext('2d'); c.clearRect(0, 0, ED.W, ED.H);
+    opsAfterBake().forEach((op)=>{ if(DRAWOPS[op.t]) paintOp(c, op); });
+  }
+
+  /* ================= РИСОВАНИЕ ОПЕРАЦИЙ ================= */
+  function strokePath(c, pts, size, color, cap){
+    c.save(); c.lineCap = cap || 'round'; c.lineJoin = 'round'; c.lineWidth = size; c.strokeStyle = color; c.fillStyle = color;
+    if(pts.length === 1){ c.beginPath(); c.arc(pts[0][0], pts[0][1], size / 2, 0, TAU); c.fill(); }
+    else {
+      c.beginPath(); c.moveTo(pts[0][0], pts[0][1]);
+      for(let i = 1; i < pts.length - 1; i++){ const mx = (pts[i][0] + pts[i + 1][0]) / 2, my = (pts[i][1] + pts[i + 1][1]) / 2; c.quadraticCurveTo(pts[i][0], pts[i][1], mx, my); }
+      const l = pts[pts.length - 1]; c.lineTo(l[0], l[1]); c.stroke();
+    }
+    c.restore();
+  }
+  function tmpClear(){ const t = ED.tmp.getContext('2d'); t.setTransform(1, 0, 0, 1, 0, 0); t.globalCompositeOperation = 'source-over'; t.globalAlpha = 1; t.shadowBlur = 0; t.clearRect(0, 0, ED.W, ED.H); return t; }
+  function paintShape(c, op){
+    c.save(); c.lineWidth = op.size; c.lineCap = 'round'; c.lineJoin = 'round'; c.strokeStyle = op.color; c.fillStyle = op.color;
+    const {x1, y1, x2, y2} = op;
+    if(op.kind === 'line'){ c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke(); }
+    else if(op.kind === 'arrow'){
+      const a = Math.atan2(y2 - y1, x2 - x1), hl = Math.max(op.size * 3.4, 22), len = Math.hypot(x2 - x1, y2 - y1);
+      if(len < 3){ c.beginPath(); c.arc(x1, y1, op.size / 2, 0, TAU); c.fill(); }
+      else {
+        const k = Math.min(hl, len * .7), bx = x2 - Math.cos(a) * k * .8, by = y2 - Math.sin(a) * k * .8;
+        c.beginPath(); c.moveTo(x1, y1); c.lineTo(bx, by); c.stroke();
+        c.beginPath(); c.moveTo(x2, y2); c.lineTo(x2 - k * Math.cos(a - .5), y2 - k * Math.sin(a - .5)); c.lineTo(x2 - k * Math.cos(a + .5), y2 - k * Math.sin(a + .5)); c.closePath(); c.fill(); c.stroke();
+      }
+    } else if(op.kind === 'rect'){
+      const x = Math.min(x1, x2), y = Math.min(y1, y2), w = Math.abs(x2 - x1), h = Math.abs(y2 - y1), r = Math.min(op.size * 1.2, w / 2, h / 2);
+      c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r); c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath();
+      if(op.fill) c.fill(); else c.stroke();
+    } else if(op.kind === 'oval'){
+      c.beginPath(); c.ellipse((x1 + x2) / 2, (y1 + y2) / 2, Math.max(.5, Math.abs(x2 - x1) / 2), Math.max(.5, Math.abs(y2 - y1) / 2), 0, 0, TAU);
+      if(op.fill) c.fill(); else c.stroke();
+    }
+    c.restore();
+  }
+  function paintOp(c, op){
+    if(op.t === 'stroke'){
+      if(op.kind === 'hl'){ const t = tmpClear(); strokePath(t, op.pts, op.size, op.color, 'butt'); c.save(); c.globalAlpha = .42; c.drawImage(ED.tmp, 0, 0); c.restore(); }
+      else if(op.kind === 'neon'){
+        const t = tmpClear(); t.save(); t.shadowColor = op.color; t.shadowBlur = op.size * 1.6; strokePath(t, op.pts, op.size, op.color); strokePath(t, op.pts, op.size, op.color); t.restore();
+        strokePath(t, op.pts, Math.max(1.5, op.size * .42), '#FFFFFF'); c.drawImage(ED.tmp, 0, 0);
+      } else strokePath(c, op.pts, op.size, op.color);
+    } else if(op.t === 'erase'){
+      c.save(); c.globalCompositeOperation = 'destination-out'; strokePath(c, op.pts, op.size, '#000'); c.restore();
+    } else if(op.t === 'shape'){
+      paintShape(c, op);
+    } else if(op.t === 'mosaic'){
+      ensureFx();
+      const t = tmpClear(); strokePath(t, op.pts, op.size, '#000'); t.globalCompositeOperation = 'source-in'; t.drawImage(op.mode === 'blur' ? ED.blur : ED.pix, 0, 0); t.globalCompositeOperation = 'source-over';
+      c.drawImage(ED.tmp, 0, 0);
+    }
+  }
+
+  /* ================= ОБЪЕКТЫ: ТЕКСТ И СТИКЕРЫ ================= */
+  const fontOf = (id)=> FONTS.find((f)=> f.id === id) || FONTS[0];
+  const textPx = (o)=> ED.W * .075 * o.scale;
+  const fontStr = (o, px)=> { const f = fontOf(o.font); return `${f.st ? f.st + ' ' : ''}${f.w} ${px}px ${f.css}`; };
+  const contrast = (hex)=> { const n = parseInt(hex.slice(1), 16), r = n >> 16, g = (n >> 8) & 255, b = n & 255; return (.299 * r + .587 * g + .114 * b) > 150 ? '#111318' : '#FFFFFF'; };
+  function textLayout(o){
+    const px = textPx(o), lines = String(o.text || '').split('\n'), lh = px * 1.2;
+    mctx.font = fontStr(o, px);
+    const ws = lines.map((l)=> mctx.measureText(l || ' ').width), mw = Math.max.apply(null, ws), pad = px * .32;
+    return {px, lines, lh, ws, mw, pad, w: mw + pad * 2, h: lines.length * lh + pad * 2 - px * .1};
+  }
+  function drawText(c, o){
+    const L = textLayout(o), px = L.px; c.save(); c.translate(o.x, o.y); c.rotate(o.rot); c.font = fontStr(o, px); c.textBaseline = 'middle'; c.lineJoin = 'round';
+    const col = o.color, top = -(L.lines.length * L.lh) / 2 + L.lh / 2;
+    L.lines.forEach((ln, i)=>{
+      const w = L.ws[i], y = top + i * L.lh;
+      const x = o.align === 'left' ? -L.mw / 2 : o.align === 'right' ? L.mw / 2 - w : -w / 2;
+      if(o.bg === 'solid' && ln){ c.fillStyle = col; const r = px * .3; rr(c, x - px * .3, y - L.lh / 2 + px * .06, w + px * .6, L.lh - px * .04, r); c.fill(); }
+    });
+    L.lines.forEach((ln, i)=>{
+      if(!ln) return;
+      const w = L.ws[i], y = top + i * L.lh, x = o.align === 'left' ? -L.mw / 2 : o.align === 'right' ? L.mw / 2 - w : -w / 2;
+      c.textAlign = 'left';
+      if(o.bg === 'solid'){ c.fillStyle = contrast(col); c.fillText(ln, x, y); }
+      else if(o.bg === 'outline'){ c.strokeStyle = contrast(col); c.lineWidth = px * .2; c.strokeText(ln, x, y); c.fillStyle = col; c.fillText(ln, x, y); }
+      else if(o.bg === 'glow'){ c.shadowColor = col; c.shadowBlur = px * .6; c.fillStyle = '#FFFFFF'; c.fillText(ln, x, y); c.shadowBlur = px * .3; c.fillStyle = col; c.globalAlpha = .9; c.fillText(ln, x, y); c.globalAlpha = 1; c.shadowBlur = 0; }
+      else { c.shadowColor = 'rgba(0,0,0,.38)'; c.shadowBlur = px * .14; c.shadowOffsetY = px * .03; c.fillStyle = col; c.fillText(ln, x, y); }
+    });
+    c.restore();
+  }
+  function rr(c, x, y, w, h, r){ r = Math.min(r, w / 2, h / 2); c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r); c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath(); }
+  const stickerPx = (o)=> ED.W * .24 * o.scale;
+  function stickerImg(e){
+    if(ED.stk.has(e)) return ED.stk.get(e).img;
+    const rec = {img: null}; ED.stk.set(e, rec);
+    if(HEROES.indexOf(e) < 0 || typeof animEmojiUrl !== 'function') return null;
+    try{
+      const url = animEmojiUrl(e);
+      if(!url) return null;
+      rec.p = fetch(url, {mode: 'cors'}).then((r)=> r.blob()).then((b)=> new Promise((res, rej)=>{ const im = new Image(), u = URL.createObjectURL(b); im.onload = ()=>{ rec.img = im; res(); invalidate(); }; im.onerror = rej; im.src = u; })).catch(()=>{});
+    }catch(_){}
+    return null;
+  }
+  function drawSticker(c, o){
+    const s = stickerPx(o), im = stickerImg(o.emoji); c.save(); c.translate(o.x, o.y); c.rotate(o.rot);
+    if(im){ const k = Math.min(s / (im.naturalWidth || s), s / (im.naturalHeight || s)); const w = (im.naturalWidth || s) * k, h = (im.naturalHeight || s) * k; c.shadowColor = 'rgba(0,0,0,.25)'; c.shadowBlur = s * .05; c.drawImage(im, -w / 2, -h / 2, w, h); }
+    else { c.font = `${s * .82}px "Apple Color Emoji","Noto Color Emoji","Segoe UI Emoji",sans-serif`; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(o.emoji, 0, s * .04); }
+    c.restore();
+  }
+  const drawObj = (c, o)=> o.type === 'text' ? drawText(c, o) : drawSticker(c, o);
+  function objBox(o){ if(o.type === 'text'){ const L = textLayout(o); return {w: L.w, h: L.h}; } const s = stickerPx(o); return {w: s * 1.02, h: s * 1.02}; }
+  function hitObj(x, y){
+    const list = curObjs();
+    for(let i = list.length - 1; i >= 0; i--){
+      const o = list[i], b = objBox(o), dx = x - o.x, dy = y - o.y, cs = Math.cos(-o.rot), sn = Math.sin(-o.rot), lx = dx * cs - dy * sn, ly = dx * sn + dy * cs;
+      if(Math.abs(lx) <= b.w / 2 && Math.abs(ly) <= b.h / 2) return o.id;
+    }
+    return null;
+  }
+  const findObj = (id)=> curObjs().find((o)=> o.id === id);
+  function commitObjs(list){ pushOp({t: 'objs', list: cloneObjs(list)}); }
+  function mutateObjs(fn){ const l = cloneObjs(curObjs()); fn(l); commitObjs(l); }
+  function addObj(o){ o.id = 'o' + Date.now() + Math.floor(Math.random() * 999); mutateObjs((l)=> l.push(o)); ED.sel = o.id; setTool('obj'); invalidate(); }
+
+  /* ================= ВЫВОД НА ЭКРАН ================= */
+  function invalidate(){ if(!ED.raf && ED.open) ED.raf = requestAnimationFrame(render); }
+  function composeTo(c, withObjs){
+    c.drawImage(ED.fbase, 0, 0); c.drawImage(ED.draw, 0, 0);
+    if(withObjs) curObjs().forEach((o)=> drawObj(c, o));
+  }
+  function render(){
+    ED.raf = 0; if(!ED.open || !ED.base) return;
+    const c = ED.cv.getContext('2d'); c.clearRect(0, 0, ED.W, ED.H); c.drawImage(ED.fbase, 0, 0); c.drawImage(ED.draw, 0, 0);
+    if(G.draw && G.draw.op.t !== 'erase'){ const lc = ED.live.getContext('2d'); lc.clearRect(0, 0, ED.W, ED.H); paintOp(lc, G.draw.op); c.drawImage(ED.live, 0, 0); }
+    curObjs().forEach((o)=> drawObj(c, o));
+    drawOverlay();
+  }
+  function scaleK(){ const r = ED.cv.getBoundingClientRect(); return r.width ? r.width / ED.W : 1; }
+  function drawOverlay(){
+    const o = ED.ov.getContext('2d'); o.clearRect(0, 0, ED.W, ED.H);
+    const k = scaleK() || 1;
+    if(ED.mode === 'crop' && ED.crop){
+      const cr = ED.crop; o.fillStyle = 'rgba(8,10,16,.62)'; o.beginPath(); o.rect(0, 0, ED.W, ED.H); o.rect(cr.x, cr.y, cr.w, cr.h); o.fill('evenodd');
+      o.strokeStyle = '#fff'; o.lineWidth = 2 / k; o.strokeRect(cr.x, cr.y, cr.w, cr.h);
+      o.strokeStyle = 'rgba(255,255,255,.35)'; o.lineWidth = 1 / k;
+      for(let i = 1; i < 3; i++){ o.beginPath(); o.moveTo(cr.x + cr.w * i / 3, cr.y); o.lineTo(cr.x + cr.w * i / 3, cr.y + cr.h); o.moveTo(cr.x, cr.y + cr.h * i / 3); o.lineTo(cr.x + cr.w, cr.y + cr.h * i / 3); o.stroke(); }
+      const hl = 20 / k;
+      o.lineCap = 'round'; o.strokeStyle = '#fff'; o.lineWidth = 5 / k;
+      [[cr.x, cr.y, 1, 1], [cr.x + cr.w, cr.y, -1, 1], [cr.x, cr.y + cr.h, 1, -1], [cr.x + cr.w, cr.y + cr.h, -1, -1]].forEach(([x, y, sx, sy])=>{ o.beginPath(); o.moveTo(x + sx * hl, y); o.lineTo(x, y); o.lineTo(x, y + sy * hl); o.stroke(); });
+      return;
+    }
+    if(ED.sel){
+      const ob = findObj(ED.sel); if(!ob) return; const b = objBox(ob);
+      o.save(); o.translate(ob.x, ob.y); o.rotate(ob.rot);
+      o.strokeStyle = '#fff'; o.lineWidth = 2 / k; o.setLineDash([8 / k, 6 / k]); o.strokeRect(-b.w / 2, -b.h / 2, b.w, b.h); o.setLineDash([]);
+      const hr = 15 / k;
+      const knob = (x, y, bg, ic)=>{ o.beginPath(); o.arc(x, y, hr, 0, TAU); o.fillStyle = bg; o.fill(); o.lineWidth = 2 / k; o.strokeStyle = '#fff'; o.stroke(); o.fillStyle = '#fff'; o.font = `${hr * 1.1}px sans-serif`; o.textAlign = 'center'; o.textBaseline = 'middle'; o.fillText(ic, x, y + hr * .06); };
+      knob(-b.w / 2, -b.h / 2, '#E03131', '✕'); knob(b.w / 2, b.h / 2, '#4C6EF5', '⤡');
+      o.restore();
+    }
+    if(G.obj && G.obj.drag){                          /* корзина при перетаскивании */
+      const r = 34 / k, x = ED.W / 2, y = ED.H - r * 1.7, on = G.obj.overTrash;
+      o.beginPath(); o.arc(x, y, on ? r * 1.2 : r, 0, TAU); o.fillStyle = on ? 'rgba(224,49,49,.95)' : 'rgba(20,22,30,.75)'; o.fill(); o.strokeStyle = '#fff'; o.lineWidth = 2 / k; o.stroke();
+      o.fillStyle = '#fff'; o.font = `${r * .95}px sans-serif`; o.textAlign = 'center'; o.textBaseline = 'middle'; o.fillText('🗑', x, y + r * .06);
+    }
+  }
+
+  /* ================= СТИЛИ ================= */
+  const CSS = `
+  .pe{position:fixed;inset:0;z-index:3000;display:flex;flex-direction:column;background:#0b0d14;color:#fff;user-select:none;-webkit-user-select:none;padding:env(safe-area-inset-top,0) env(safe-area-inset-right,0) env(safe-area-inset-bottom,0) env(safe-area-inset-left,0);animation:peIn .2s ease}
+  @keyframes peIn{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+  .pe *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  .pe button{font-family:inherit;color:inherit}
+  .pe-top{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px 8px}
+  .pe-hist,.pe-top-r{display:flex;gap:8px;align-items:center}
+  .pe-ib{width:42px;height:42px;flex:none;border-radius:50%;background:rgba(255,255,255,.1);color:#fff;display:flex;align-items:center;justify-content:center;transition:transform .12s,background .15s,opacity .15s}
+  .pe-ib:active{transform:scale(.9);background:rgba(255,255,255,.2)}.pe-ib:disabled{opacity:.28;pointer-events:none}
+  .pe-ib svg{width:21px;height:21px}
+  .pe-done{height:42px;padding:0 18px;border-radius:21px;background:linear-gradient(135deg,#4C6EF5,#7C4DFF);color:#fff;font-weight:700;font-size:15px;display:flex;align-items:center;gap:8px;box-shadow:0 6px 18px rgba(76,110,245,.45);transition:transform .12s}
+  .pe-done:active{transform:scale(.95)}.pe-done svg{width:18px;height:18px}
+  .pe-stage{flex:1;min-height:0;position:relative;overflow:hidden;touch-action:none}
+  .pe-zoom{position:absolute;transform-origin:0 0;border-radius:4px;box-shadow:0 12px 44px rgba(0,0,0,.55);background:repeating-conic-gradient(#2a2d38 0 25%,#232632 0 50%) 0 0/16px 16px}
+  .pe-zoom canvas{position:absolute;inset:0;width:100%;height:100%;display:block}
+  .pe-zreset{position:absolute;left:50%;bottom:10px;transform:translateX(-50%);height:34px;padding:0 14px;border-radius:17px;background:rgba(20,22,30,.78);backdrop-filter:blur(10px);font-size:12.5px;font-weight:600;display:flex;align-items:center;gap:6px}
+  .pe-zreset svg{width:16px;height:16px}
+  .pe-load{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:rgba(255,255,255,.7);font-size:14px}
+  .pe-panel{padding:8px 12px 4px;display:flex;flex-direction:column;gap:8px;min-height:20px}
+  .pe-row{display:flex;align-items:center;gap:8px;overflow-x:auto;scrollbar-width:none;padding:1px 0}.pe-row::-webkit-scrollbar{display:none}
+  .pe-chip{flex:none;height:36px;padding:0 14px;border-radius:18px;background:rgba(255,255,255,.1);color:#fff;font-size:13px;font-weight:600;display:flex;align-items:center;gap:6px;transition:background .15s,transform .1s}
+  .pe-chip:active{transform:scale(.95)}.pe-chip svg{width:17px;height:17px}
+  .pe-chip.on{background:linear-gradient(135deg,#4C6EF5,#7C4DFF);box-shadow:0 4px 14px rgba(76,110,245,.45)}
+  .pe-chip.ok{background:linear-gradient(135deg,#2F9E44,#51CF66)}
+  .pe-dot{flex:none;width:30px;height:30px;border-radius:50%;border:2px solid rgba(255,255,255,.5);transition:transform .12s}
+  .pe-dot.on{transform:scale(1.2);border-color:#fff;box-shadow:0 0 0 3px rgba(124,77,255,.65)}
+  .pe-pip{flex:none;width:30px;height:30px;border-radius:50%;background:rgba(255,255,255,.14);display:flex;align-items:center;justify-content:center}.pe-pip.on{background:linear-gradient(135deg,#4C6EF5,#7C4DFF)}.pe-pip svg{width:16px;height:16px}
+  .pe-range{-webkit-appearance:none;appearance:none;flex:1;min-width:60px;height:30px;background:transparent;margin:0}
+  .pe-range::-webkit-slider-runnable-track{height:6px;border-radius:3px;background:rgba(255,255,255,.22)}
+  .pe-range::-webkit-slider-thumb{-webkit-appearance:none;width:24px;height:24px;border-radius:50%;background:#fff;margin-top:-9px;box-shadow:0 2px 8px rgba(0,0,0,.45)}
+  .pe-range::-moz-range-track{height:6px;border-radius:3px;background:rgba(255,255,255,.22)}
+  .pe-range::-moz-range-thumb{width:24px;height:24px;border:0;border-radius:50%;background:#fff}
+  .pe-hue::-webkit-slider-runnable-track{background:linear-gradient(90deg,#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00)}
+  .pe-hue::-moz-range-track{background:linear-gradient(90deg,#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00)}
+  .pe-lab{flex:none;font-size:11.5px;font-weight:600;color:rgba(255,255,255,.62);width:78px}
+  .pe-szdot{flex:none;width:34px;height:34px;display:flex;align-items:center;justify-content:center}.pe-szdot i{display:block;border-radius:50%;background:#fff;box-shadow:0 0 0 1px rgba(0,0,0,.4)}
+  .pe-hint{font-size:12.5px;color:rgba(255,255,255,.6);line-height:1.4;padding:2px 2px 0}
+  .pe-dock{display:flex;justify-content:space-around;padding:6px 6px 8px;background:rgba(14,16,24,.94);border-top:1px solid rgba(255,255,255,.07)}
+  .pe-tool{flex:1;max-width:78px;display:flex;flex-direction:column;align-items:center;gap:3px;padding:7px 2px;border-radius:14px;color:rgba(255,255,255,.72);font-size:10.5px;font-weight:600;transition:background .15s,transform .1s}
+  .pe-tool:active{transform:scale(.93)}.pe-tool svg{width:23px;height:23px}
+  .pe-tool.on{color:#fff;background:linear-gradient(135deg,rgba(76,110,245,.95),rgba(124,77,255,.95));box-shadow:0 6px 16px rgba(76,110,245,.4)}
+  .pe-incrop .pe-dock,.pe-incrop .pe-hist{display:none}
+  .pe-fp{flex:none;display:flex;flex-direction:column;align-items:center;gap:4px;font-size:11px;font-weight:600;color:rgba(255,255,255,.75)}
+  .pe-fp canvas{width:58px;height:58px;border-radius:12px;border:2px solid transparent;display:block}.pe-fp.on canvas{border-color:#7C4DFF;box-shadow:0 0 0 2px rgba(124,77,255,.4)}.pe-fp.on{color:#fff}
+  .pe-modal{position:absolute;inset:0;z-index:5;background:rgba(8,10,16,.86);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);display:flex;flex-direction:column;animation:peFade .15s ease}
+  @keyframes peFade{from{opacity:0}to{opacity:1}}
+  .pe-tm-top{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px}
+  .pe-tm-tools{display:flex;gap:8px}
+  .pe-tm-mid{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;padding:10px 18px}
+  .pe-ta{width:100%;max-height:100%;border:0;background:transparent;resize:none;text-align:center;font-size:34px;line-height:1.25;color:#fff;caret-color:#7C9BFF;outline:none;padding:8px 14px;border-radius:14px;overflow:auto}
+  .pe-ta::placeholder{color:rgba(255,255,255,.35)}
+  .pe-tm-bot{padding:8px 12px 14px;display:flex;flex-direction:column;gap:10px}
+  .pe-sheet{justify-content:flex-end;background:rgba(8,10,16,.55)}
+  .pe-sp{background:#14161f;border-radius:24px 24px 0 0;padding:10px 12px calc(14px + env(safe-area-inset-bottom,0px));box-shadow:0 -10px 40px rgba(0,0,0,.5);animation:peUp .22s cubic-bezier(.2,.8,.3,1)}
+  @keyframes peUp{from{transform:translateY(40px);opacity:0}to{transform:none;opacity:1}}
+  .pe-grip{width:40px;height:4px;border-radius:2px;background:rgba(255,255,255,.25);margin:0 auto 10px}
+  .pe-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;max-height:42vh;overflow-y:auto;padding:8px 2px;margin-top:6px}
+  .pe-em{aspect-ratio:1;display:flex;align-items:center;justify-content:center;font-size:30px;border-radius:14px;background:rgba(255,255,255,.05);transition:transform .1s,background .15s}
+  .pe-em:active{transform:scale(.88);background:rgba(124,77,255,.35)}.pe-em img{width:80%;height:80%;object-fit:contain}
+  .pe-cap{width:100%;height:46px;border-radius:23px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.07);color:#fff;font-size:15px;padding:0 18px;outline:none}
+  .pe-cap:focus{border-color:#7C4DFF}
+  .pe-btnrow{display:flex;gap:10px;margin-top:12px}.pe-btnrow button{flex:1;height:46px;border-radius:23px;font-weight:700;font-size:15px;background:rgba(255,255,255,.1)}
+  .pe-btnrow .go{background:linear-gradient(135deg,#4C6EF5,#7C4DFF);box-shadow:0 8px 20px rgba(76,110,245,.45);flex:1.5}
+  .pe-toast{position:absolute;left:50%;top:70px;transform:translateX(-50%);background:rgba(20,22,30,.92);padding:9px 16px;border-radius:18px;font-size:13px;font-weight:600;z-index:9;animation:peFade .15s}
+  #lightbox-edit{position:absolute;top:18px;right:114px;width:40px;height:40px;border-radius:50%;background:rgba(255,255,255,.14);color:#fff;display:flex;align-items:center;justify-content:center;border:0;cursor:pointer;backdrop-filter:blur(8px)}
+  #lightbox-edit svg{width:19px;height:19px}
+  .img-preview .pe-edit{position:absolute;left:2px;bottom:2px;width:20px;height:20px;border-radius:50%;background:linear-gradient(135deg,#4C6EF5,#7C4DFF);color:#fff;display:flex;align-items:center;justify-content:center}
+  .img-preview .pe-edit svg{width:11px;height:11px}`;
+
+  /* ================= ИНТЕРФЕЙС ================= */
+  const hsl = (h, s, l)=>{ s /= 100; l /= 100; const a = s * Math.min(l, 1 - l), f = (n)=>{ const k = (n + h / 30) % 12; return l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1)); }; const x = (v)=> Math.round(v * 255).toString(16).padStart(2, '0'); return '#' + x(f(0)) + x(f(8)) + x(f(4)); };
+  const toast = (m)=>{ try{ const t = document.createElement('div'); t.className = 'pe-toast'; t.textContent = m; ED.root.appendChild(t); setTimeout(()=> t.remove(), 1800); }catch(_){} };
+  const hap = (n)=>{ try{ window.haptic && haptic('buttons', n || 8); }catch(_){} };
+
+  function ensureDom(){
+    if(ED.root) return;
+    const st = document.createElement('style'); st.textContent = CSS; document.head.appendChild(st);
+    const r = document.createElement('div'); r.className = 'pe'; r.style.display = 'none';
+    r.innerHTML = `
+      <div class="pe-top">
+        <button class="pe-ib" data-a="close" aria-label="Закрыть">${IC.close}</button>
+        <div class="pe-hist"><button class="pe-ib" data-a="undo" aria-label="Отменить">${IC.undo}</button><button class="pe-ib" data-a="redo" aria-label="Вернуть">${IC.redo}</button></div>
+        <div class="pe-top-r"><button class="pe-ib" data-a="save" aria-label="Сохранить на устройство">${IC.download}</button><button class="pe-done" data-a="done"><span id="pe-done-t">Отправить</span>${IC.send}</button></div>
+      </div>
+      <div class="pe-stage" id="pe-stage"><div class="pe-zoom" id="pe-zoom"><canvas id="pe-cv"></canvas><canvas id="pe-ov"></canvas></div><div class="pe-load" id="pe-load">Загружаю фото…</div><button class="pe-zreset" data-a="zreset" style="display:none">${IC.zoom}<span>Сбросить масштаб</span></button></div>
+      <div class="pe-panel" id="pe-panel"></div>
+      <div class="pe-dock" id="pe-dock">
+        ${[['brush', 'Кисть'], ['shape', 'Фигуры'], ['text', 'Текст'], ['sticker', 'Стикеры'], ['mosaic', 'Мозаика'], ['filters', 'Фильтры'], ['crop', 'Обрезка']].map(([t, n])=> `<button class="pe-tool" data-tool="${t}">${IC[t === 'shape' ? 'shapes' : t]}<span>${n}</span></button>`).join('')}
+      </div>
+      <div class="pe-modal" id="pe-text" style="display:none">
+        <div class="pe-tm-top"><button class="pe-chip" data-ta="cancel">Отмена</button>
+          <div class="pe-tm-tools"><button class="pe-ib" data-ta="align" id="pe-ta-align"></button><button class="pe-ib" data-ta="bg" id="pe-ta-bg" style="font-weight:800;font-size:16px">A</button></div>
+          <button class="pe-done" data-ta="ok" style="height:38px"><span>Готово</span>${IC.check}</button></div>
+        <div class="pe-tm-mid"><textarea class="pe-ta" id="pe-ta" rows="3" placeholder="Введите текст" maxlength="300"></textarea></div>
+        <div class="pe-tm-bot"><div class="pe-row" id="pe-ta-fonts"></div><div class="pe-row" id="pe-ta-colors"></div></div>
+      </div>
+      <div class="pe-modal pe-sheet" id="pe-stk" style="display:none"><div class="pe-sp"><div class="pe-grip"></div><div class="pe-row" id="pe-stk-tabs"></div><div class="pe-grid" id="pe-stk-grid"></div></div></div>
+      <div class="pe-modal pe-sheet" id="pe-send" style="display:none"><div class="pe-sp"><div class="pe-grip"></div><input class="pe-cap" id="pe-cap" placeholder="Добавить подпись…" maxlength="500"><div class="pe-btnrow"><button data-sa="cancel">Назад</button><button class="go" data-sa="go">Отправить</button></div></div></div>`;
+    document.body.appendChild(r);
+    ED.root = r; ED.stage = $('#pe-stage', r); ED.zoomEl = $('#pe-zoom', r); ED.cv = $('#pe-cv', r); ED.ov = $('#pe-ov', r); ED.panel = $('#pe-panel', r);
+    r.addEventListener('click', onClick);
+    r.addEventListener('input', onInput); r.addEventListener('change', onChange);
+    const s = ED.stage;
+    s.addEventListener('pointerdown', onDown); s.addEventListener('pointermove', onMove); s.addEventListener('pointerup', onUp); s.addEventListener('pointercancel', onUp);
+    s.addEventListener('wheel', (e)=>{ if(ED.mode === 'crop') return; e.preventDefault(); zoomAt(e.clientX, e.clientY, ED.zoom.k * (e.deltaY < 0 ? 1.15 : .87)); }, {passive: false});
+    window.addEventListener('resize', ()=>{ if(ED.open) relayout(); });
+    document.addEventListener('keydown', (e)=>{ if(!ED.open) return; if(e.key === 'Escape') requestClose(); else if((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z'){ e.preventDefault(); e.shiftKey ? redo() : undo(); } });
+  }
+
+  const modalOpen = ()=> ['#pe-text', '#pe-stk', '#pe-send'].some((q)=> $(q, ED.root).style.display !== 'none');
+  function syncUI(){
+    if(!ED.root) return;
+    $('[data-a="undo"]', ED.root).disabled = !ED.stack.length; $('[data-a="redo"]', ED.root).disabled = !ED.redo.length;
+    const active = ED.tool === 'obj' ? (ED.sel && (findObj(ED.sel) || {}).type === 'sticker' ? 'sticker' : 'text') : ED.tool === 'shape' ? 'shape' : ED.tool;
+    ED.root.querySelectorAll('.pe-tool').forEach((b)=> b.classList.toggle('on', b.dataset.tool === active && (ED.tool !== 'obj' || ED.sel)));
+    $('[data-a="zreset"]', ED.root).style.display = ED.zoom.k > 1.02 && ED.mode !== 'crop' ? '' : 'none';
+    $('#pe-done-t', ED.root).textContent = ED.opts.mode === 'return' ? 'Готово' : 'Отправить';
+  }
+
+  /* ----- панели инструментов ----- */
+  const dots = ()=> PALETTE.map((c)=> `<button class="pe-dot${ED.color.toUpperCase() === c ? ' on' : ''}" data-color="${c}" style="background:${c}" aria-label="Цвет"></button>`).join('');
+  const colorRows = ()=> `<div class="pe-row"><button class="pe-pip${ED.eyedrop ? ' on' : ''}" data-a="pipette" aria-label="Пипетка">${IC.pipette}</button>${dots()}</div>
+    <div class="pe-row"><span class="pe-lab">Оттенок</span><input type="range" class="pe-range pe-hue" min="0" max="360" value="${ED.hue}" data-s="hue"><input type="range" class="pe-range" min="12" max="88" value="${ED.light}" data-s="light" style="max-width:34%"></div>`;
+  const sizeRow = (label)=> `<div class="pe-row"><span class="pe-lab">${label || 'Толщина'}</span><input type="range" class="pe-range" min="1" max="100" value="${ED.size}" data-s="size"><span class="pe-szdot"><i id="pe-szi" style="width:${6 + ED.size * .26}px;height:${6 + ED.size * .26}px;background:${ED.brush === 'erase' && ED.tool === 'brush' ? '#fff' : ED.color}"></i></span></div>`;
+  const chip = (attr, val, cur, icon, name)=> `<button class="pe-chip${cur === val ? ' on' : ''}" data-${attr}="${val}">${icon || ''}<span>${name}</span></button>`;
+
+  function renderPanel(){
+    const p = ED.panel; let h = '';
+    if(ED.mode === 'crop'){
+      const A = [['0', 'Свободно'], ['orig', 'Оригинал'], ['1', '1:1'], ['0.8', '4:5'], ['0.75', '3:4'], ['1.3333', '4:3'], ['0.5625', '9:16'], ['1.7778', '16:9']];
+      h = `<div class="pe-row">${A.map(([v, n])=> `<button class="pe-chip${String(ED.cropKey || '0') === v ? ' on' : ''}" data-aspect="${v}">${n}</button>`).join('')}</div>
+        <div class="pe-row"><button class="pe-chip" data-a="rotl">${IC.rotL}<span>Влево</span></button><button class="pe-chip" data-a="rotr">${IC.rotR}<span>Вправо</span></button><button class="pe-chip" data-a="flip">${IC.flip}<span>Зеркало</span></button><span style="flex:1"></span><button class="pe-chip" data-a="cropcancel">Отмена</button><button class="pe-chip ok" data-a="cropok">${IC.check}<span>Применить</span></button></div>`;
+    } else if(ED.tool === 'brush'){
+      h = `<div class="pe-row">${chip('brush', 'pen', ED.brush, IC.pen, 'Ручка')}${chip('brush', 'hl', ED.brush, IC.marker, 'Маркер')}${chip('brush', 'neon', ED.brush, IC.neon, 'Неон')}${chip('brush', 'erase', ED.brush, IC.eraser, 'Ластик')}</div>${ED.brush === 'erase' ? '' : colorRows()}${sizeRow()}`;
+    } else if(ED.tool === 'shape'){
+      h = `<div class="pe-row">${chip('shape', 'arrow', ED.shape, IC.arrow, 'Стрелка')}${chip('shape', 'line', ED.shape, IC.line, 'Линия')}${chip('shape', 'rect', ED.shape, IC.rect, 'Рамка')}${chip('shape', 'oval', ED.shape, IC.oval, 'Овал')}${(ED.shape === 'rect' || ED.shape === 'oval') ? `<button class="pe-chip${ED.shapeFill ? ' on' : ''}" data-a="fill"><span>Заливка</span></button>` : ''}</div>${colorRows()}${sizeRow()}`;
+    } else if(ED.tool === 'mosaic'){
+      h = `<div class="pe-row">${chip('mos', 'pix', ED.mosaic, IC.mosaic, 'Мозаика')}${chip('mos', 'blur', ED.mosaic, IC.blur, 'Размытие')}</div>${sizeRow('Размер')}<div class="pe-hint">Проведите пальцем по лицу, номеру, адресу — скрыть можно что угодно.</div>`;
+    } else if(ED.tool === 'obj'){
+      const ob = ED.sel && findObj(ED.sel);
+      h = `<div class="pe-row"><button class="pe-chip" data-a="addtext">${IC.text}<span>Текст</span></button><button class="pe-chip" data-a="addstk">${IC.sticker}<span>Стикер</span></button>${ob && ob.type === 'text' ? `<button class="pe-chip" data-a="edittext">${IC.pen}<span>Изменить</span></button>` : ''}${ob ? `<button class="pe-chip" data-a="dup"><span>Копия</span></button><button class="pe-chip" data-a="front"><span>Наверх</span></button><button class="pe-chip" data-a="del">${IC.trash}</button>` : ''}</div>
+        <div class="pe-hint">Перетаскивайте пальцем. Двумя пальцами — размер и поворот. ⤡ — тоже размер, ✕ — удалить. Утащите вниз в корзину.</div>`;
+    } else if(ED.tool === 'filters'){
+      const f = ED.fp || {}, sl = (k, n)=> `<div class="pe-row"><span class="pe-lab">${n}</span><input type="range" class="pe-range" min="-100" max="100" value="${Math.round((f[k] || 0) * 100)}" data-fs="${k}"></div>`;
+      h = `<div class="pe-row" id="pe-fps">${PRESETS.map((x)=> `<button class="pe-fp" data-fp="${x.id}"><canvas width="72" height="72"></canvas><span>${x.name}</span></button>`).join('')}</div>${sl('br', 'Яркость')}${sl('ct', 'Контраст')}${sl('sa', 'Насыщенность')}${sl('wm', 'Тепло')}`;
+    }
+    p.innerHTML = h;
+    if(ED.tool === 'filters') paintThumbs();
+    syncUI();
+  }
+  function paintThumbs(){
+    if(!ED.thumbBase){ const t = mk(72, 72), c = t.getContext('2d'), s = Math.max(72 / ED.W, 72 / ED.H); c.drawImage(ED.base, (72 - ED.W * s) / 2, (72 - ED.H * s) / 2, ED.W * s, ED.H * s); ED.thumbBase = t; }
+    const cur = presetMatch();
+    ED.panel.querySelectorAll('.pe-fp').forEach((b)=>{
+      const pr = PRESETS.find((x)=> x.id === b.dataset.fp), cv = $('canvas', b); filterCanvas(ED.thumbBase, pr.p, cv); b.classList.toggle('on', pr.id === cur);
+    });
+  }
+  function presetMatch(){ const f = ED.fp || {}, ks = Object.keys(f).filter((k)=> f[k]); if(!ks.length) return 'none'; const m = PRESETS.find((x)=> JSON.stringify(x.p) === JSON.stringify(Object.fromEntries(ks.map((k)=> [k, f[k]])))); return m ? m.id : ''; }
+
+  function setTool(t){
+    if(ED.mode === 'crop' && t !== 'crop') exitCrop();
+    ED.eyedrop = false; ED.tool = t; if(t !== 'obj') ED.sel = null;
+    if(t === 'crop') enterCrop(); else renderPanel();
+    syncUI(); invalidate();
+  }
+  function pickColor(pt){
+    try{ const d = ED.cv.getContext('2d').getImageData(clamp(Math.round(pt[0]), 0, ED.W - 1), clamp(Math.round(pt[1]), 0, ED.H - 1), 1, 1).data; ED.color = '#' + [d[0], d[1], d[2]].map((v)=> v.toString(16).padStart(2, '0')).join(''); }catch(_){}
+    ED.eyedrop = false; renderPanel(); hap(10);
+  }
+
+  /* ----- клики ----- */
+  function onClick(e){
+    const t = e.target.closest('button'); if(!t) return;
+    if(t.dataset.tool){ hap(); const k = t.dataset.tool; if(k === 'text'){ openText(null); return; } if(k === 'sticker'){ openStickers(); return; } setTool(k); return; }
+    if(t.dataset.color){ ED.color = t.dataset.color; ED.eyedrop = false; hap(6); renderPanel(); return; }
+    if(t.dataset.brush){ ED.brush = t.dataset.brush; hap(6); renderPanel(); return; }
+    if(t.dataset.shape){ ED.shape = t.dataset.shape; hap(6); renderPanel(); return; }
+    if(t.dataset.mos){ ED.mosaic = t.dataset.mos; hap(6); renderPanel(); return; }
+    if(t.dataset.fp){ const pr = PRESETS.find((x)=> x.id === t.dataset.fp); ED.fp = Object.assign({}, pr.p); applyFilterNow(); commitFilter(); renderPanel(); invalidate(); hap(6); return; }
+    if(t.dataset.aspect){ setAspect(t.dataset.aspect); return; }
+    if(t.dataset.ta){ textAction(t.dataset.ta, t); return; }
+    if(t.dataset.sa){ if(t.dataset.sa === 'cancel') $('#pe-send', ED.root).style.display = 'none'; else sendNow(); return; }
+    if(t.dataset.font){ ED.textDraft.font = t.dataset.font; renderTextSheet(); return; }
+    if(t.dataset.tcolor){ ED.textDraft.color = t.dataset.tcolor; renderTextSheet(); return; }
+    const a = t.dataset.a; if(!a) return;
+    if(a === 'close') requestClose();
+    else if(a === 'undo'){ undo(); hap(6); } else if(a === 'redo'){ redo(); hap(6); }
+    else if(a === 'done') finish();
+    else if(a === 'save') saveCopy();
+    else if(a === 'zreset') resetZoom();
+    else if(a === 'pipette'){ ED.eyedrop = !ED.eyedrop; renderPanel(); }
+    else if(a === 'fill'){ ED.shapeFill = !ED.shapeFill; renderPanel(); }
+    else if(a === 'addtext') openText(null);
+    else if(a === 'addstk') openStickers();
+    else if(a === 'edittext'){ const o = ED.sel && findObj(ED.sel); if(o) openText(o); }
+    else if(a === 'del') deleteSel();
+    else if(a === 'dup'){ const o = ED.sel && findObj(ED.sel); if(o){ const c = Object.assign({}, o, {x: o.x + ED.W * .04, y: o.y + ED.W * .04}); addObj(c); } }
+    else if(a === 'front'){ if(ED.sel) mutateObjs((l)=>{ const i = l.findIndex((o)=> o.id === ED.sel); if(i >= 0) l.push(l.splice(i, 1)[0]); }); }
+    else if(a === 'rotl') bakeXform('rotl'); else if(a === 'rotr') bakeXform('rotr'); else if(a === 'flip') bakeXform('flip');
+    else if(a === 'cropok') applyCrop(); else if(a === 'cropcancel') setTool('brush');
+  }
+  function onInput(e){
+    const s = e.target.dataset.s, fs = e.target.dataset.fs;
+    if(s === 'size'){ ED.size = +e.target.value; const i = $('#pe-szi', ED.root); if(i){ i.style.width = i.style.height = (6 + ED.size * .26) + 'px'; } }
+    else if(s === 'hue' || s === 'light'){ if(s === 'hue') ED.hue = +e.target.value; else ED.light = +e.target.value; ED.color = hsl(ED.hue, 100, ED.light); ED.panel.querySelectorAll('.pe-dot').forEach((d)=> d.classList.remove('on')); const i = $('#pe-szi', ED.root); if(i) i.style.background = ED.color; }
+    else if(fs){ ED.fp = ED.fp || {}; ED.fp[fs] = +e.target.value / 100; if(!ED.fp[fs]) delete ED.fp[fs]; if(!ED.fpRaf) ED.fpRaf = requestAnimationFrame(()=>{ ED.fpRaf = 0; applyFilterNow(); invalidate(); }); }
+    else if(e.target.id === 'pe-ta') styleTextArea();
+  }
+  function onChange(e){ if(e.target.dataset.fs){ applyFilterNow(); commitFilter(); renderPanel(); invalidate(); } }
+  function commitFilter(){
+    const op = {t: 'filter', p: Object.assign({}, ED.fp)}, last = ED.stack[ED.stack.length - 1];
+    if(last && last.t === 'filter' && ED.stack.length - 1 > ED.baseIdx){ ED.stack[ED.stack.length - 1] = op; ED.redo = []; ED.dirty = true; syncUI(); } else pushOp(op);
+  }
+
+  /* ----- масштаб холста ----- */
+  function relayout(){
+    if(!ED.base) return;
+    const sw = ED.stage.clientWidth, sh = ED.stage.clientHeight, pad = 14, s = Math.min((sw - pad * 2) / ED.W, (sh - pad * 2) / ED.H);
+    const w = Math.max(40, ED.W * s), h = Math.max(40, ED.H * s), z = ED.zoomEl;
+    z.style.width = w + 'px'; z.style.height = h + 'px'; z.style.left = (sw - w) / 2 + 'px'; z.style.top = (sh - h) / 2 + 'px';
+    applyZoom(); invalidate();
+  }
+  function applyZoom(){ const z = ED.zoom; ED.zoomEl.style.transform = `translate(${z.tx}px,${z.ty}px) scale(${z.k})`; syncUI(); }
+  function resetZoom(){ ED.zoom = {k: 1, tx: 0, ty: 0}; applyZoom(); invalidate(); }
+  function zoomAt(cx, cy, k){
+    const sr = ED.stage.getBoundingClientRect(), z = ED.zoom, L = {x: ED.zoomEl.offsetLeft, y: ED.zoomEl.offsetTop}; k = clamp(k, 1, 6);
+    const qx = (cx - sr.left - L.x - z.tx) / z.k, qy = (cy - sr.top - L.y - z.ty) / z.k;
+    z.tx = cx - sr.left - L.x - qx * k; z.ty = cy - sr.top - L.y - qy * k; z.k = k; if(k === 1){ z.tx = 0; z.ty = 0; } applyZoom(); invalidate();
+  }
+
+  /* ================= КАСАНИЯ ================= */
+  const toImg = (cx, cy)=>{ const r = ED.cv.getBoundingClientRect(); return [(cx - r.left) * ED.W / r.width, (cy - r.top) * ED.H / r.height]; };
+  const brushPx = ()=>{
+    const base = Math.min(ED.W, ED.H) / 1000, v = 2 + ED.size * .62;
+    if(ED.tool === 'mosaic') return base * v * 2.6;
+    if(ED.tool === 'shape') return base * v * .9;
+    return base * v * ({pen: 1, hl: 2.4, neon: 1.2, erase: 2}[ED.brush] || 1);
+  };
+  function onDown(e){
+    if(!ED.open || !ED.base) return;
+    if(ED.mode === 'crop'){ cropDown(e); return; }
+    if(modalOpen()) return;
+    try{ ED.stage.setPointerCapture(e.pointerId); }catch(_){}
+    P.set(e.pointerId, {x: e.clientX, y: e.clientY});
+    if(P.size === 2){ startPinch(); return; }
+    if(P.size > 2) return;
+    const pt = toImg(e.clientX, e.clientY);
+    if(ED.eyedrop){ pickColor(pt); return; }
+    if(ED.tool === 'obj'){ objDown(e, pt); return; }
+    if(ED.tool === 'brush' || ED.tool === 'shape' || ED.tool === 'mosaic'){ startDraw(pt); return; }
+    if(ED.zoom.k > 1) G.pan = {x: e.clientX, y: e.clientY, tx: ED.zoom.tx, ty: ED.zoom.ty};
+  }
+  function onMove(e){
+    if(ED.mode === 'crop'){ cropMove(e); return; }
+    if(!P.has(e.pointerId)) return;
+    P.set(e.pointerId, {x: e.clientX, y: e.clientY});
+    if(G.pinch){ movePinch(); return; }
+    if(G.draw){
+      const evs = (e.getCoalescedEvents && e.getCoalescedEvents()) || [e];
+      (evs.length ? evs : [e]).forEach((ev)=> extendDraw(toImg(ev.clientX, ev.clientY)));
+      return;
+    }
+    if(G.obj){ objMove(toImg(e.clientX, e.clientY)); return; }
+    if(G.pan){ ED.zoom.tx = G.pan.tx + e.clientX - G.pan.x; ED.zoom.ty = G.pan.ty + e.clientY - G.pan.y; applyZoom(); }
+  }
+  function onUp(e){
+    if(ED.mode === 'crop'){ G.crop = null; return; }
+    P.delete(e.pointerId);
+    try{ ED.stage.releasePointerCapture(e.pointerId); }catch(_){}
+    if(G.pinch){ if(P.size < 2){ endPinch(); } return; }
+    if(G.draw) endDraw();
+    else if(G.obj) objUp();
+    G.pan = null;
+  }
+  const dist2 = (a, b)=> Math.hypot(a.x - b.x, a.y - b.y);
+
+  /* --- рисование --- */
+  function startDraw(pt){
+    const sz = brushPx(); let op;
+    if(ED.tool === 'brush') op = ED.brush === 'erase' ? {t: 'erase', size: sz, pts: [pt]} : {t: 'stroke', kind: ED.brush, color: ED.color, size: sz, pts: [pt]};
+    else if(ED.tool === 'mosaic') op = {t: 'mosaic', mode: ED.mosaic, size: sz, pts: [pt]};
+    else op = {t: 'shape', kind: ED.shape, color: ED.color, size: sz, fill: ED.shapeFill, x1: pt[0], y1: pt[1], x2: pt[0], y2: pt[1]};
+    G.draw = {op};
+    if(op.t === 'erase') paintOp(ED.draw.getContext('2d'), op);
+    invalidate();
+  }
+  function extendDraw(pt){
+    const op = G.draw.op;
+    if(op.t === 'shape'){ op.x2 = pt[0]; op.y2 = pt[1]; }
+    else { const l = op.pts[op.pts.length - 1]; if(Math.hypot(pt[0] - l[0], pt[1] - l[1]) < Math.max(1.2, op.size * .06)) return; op.pts.push(pt); if(op.t === 'erase') paintOp(ED.draw.getContext('2d'), {t: 'erase', size: op.size, pts: [l, pt]}); }
+    invalidate();
+  }
+  function endDraw(){
+    const op = G.draw.op; G.draw = null;
+    if(op.t === 'shape' && Math.hypot(op.x2 - op.x1, op.y2 - op.y1) < 4){ invalidate(); return; }
+    if(op.t !== 'erase') paintOp(ED.draw.getContext('2d'), op);
+    ED.live.getContext('2d').clearRect(0, 0, ED.W, ED.H);
+    pushOp(op); invalidate();
+  }
+  function cancelDraw(){ if(!G.draw) return; G.draw = null; ED.live.getContext('2d').clearRect(0, 0, ED.W, ED.H); rebuildDraw(); }
+
+  /* --- два пальца: масштаб холста либо размер/поворот объекта --- */
+  function startPinch(){
+    cancelDraw(); if(G.obj) objAbort(); G.pan = null;
+    const ps = [...P.values()], a = ps[0], b = ps[1], d0 = dist2(a, b) || 1;
+    G.pinch = {d0, m0: {x: (a.x + b.x) / 2, y: (a.y + b.y) / 2}, k0: ED.zoom.k, t0: {tx: ED.zoom.tx, ty: ED.zoom.ty}, ang0: Math.atan2(b.y - a.y, b.x - a.x)};
+    const ob = ED.tool === 'obj' && ED.sel && findObj(ED.sel);
+    if(ob){
+      const op = liveObjsOp(); G.pinch.obj = {id: ob.id, x: ob.x, y: ob.y, s: ob.scale, r: ob.rot, m0: toImg(G.pinch.m0.x, G.pinch.m0.y), op};
+    }
+  }
+  function movePinch(){
+    const ps = [...P.values()].slice(0, 2); if(ps.length < 2) return;
+    const a = ps[0], b = ps[1], d = dist2(a, b) || 1, m = {x: (a.x + b.x) / 2, y: (a.y + b.y) / 2}, g = G.pinch;
+    if(g.obj){
+      const ob = g.obj.op.list.find((o)=> o.id === g.obj.id); if(!ob) return; const mi = toImg(m.x, m.y);
+      ob.scale = clamp(g.obj.s * d / g.d0, .15, 8); ob.rot = g.obj.r + (Math.atan2(b.y - a.y, b.x - a.x) - g.ang0); ob.x = g.obj.x + (mi[0] - g.obj.m0[0]); ob.y = g.obj.y + (mi[1] - g.obj.m0[1]); g.obj.moved = true; invalidate();
+    } else {
+      const sr = ED.stage.getBoundingClientRect(), L = {x: ED.zoomEl.offsetLeft, y: ED.zoomEl.offsetTop}, k = clamp(g.k0 * d / g.d0, 1, 6);
+      const qx = (g.m0.x - sr.left - L.x - g.t0.tx) / g.k0, qy = (g.m0.y - sr.top - L.y - g.t0.ty) / g.k0;
+      ED.zoom.k = k; ED.zoom.tx = m.x - sr.left - L.x - qx * k; ED.zoom.ty = m.y - sr.top - L.y - qy * k; if(k === 1){ ED.zoom.tx = 0; ED.zoom.ty = 0; } applyZoom(); invalidate();
+    }
+  }
+  function endPinch(){
+    const g = G.pinch; G.pinch = null; P.clear();
+    if(g && g.obj){ if(g.obj.moved) finishLiveObjs(g.obj.op); else abortLiveObjs(g.obj.op); }
+  }
+
+  /* --- объекты --- */
+  function liveObjsOp(){ const op = {t: 'objs', list: cloneObjs(curObjs())}, saved = ED.redo; ED.stack.push(op); op.savedRedo = saved; return op; }
+  function finishLiveObjs(op){ delete op.savedRedo; ED.redo = []; ED.dirty = true; syncUI(); invalidate(); }
+  function abortLiveObjs(op){ const i = ED.stack.lastIndexOf(op); if(i >= 0) ED.stack.splice(i, 1); ED.redo = op.savedRedo || ED.redo; invalidate(); }
+  function corner(ob, sx, sy){ const b = objBox(ob), lx = sx * b.w / 2, ly = sy * b.h / 2, c = Math.cos(ob.rot), s = Math.sin(ob.rot); return [ob.x + lx * c - ly * s, ob.y + lx * s + ly * c]; }
+  function objDown(e, pt){
+    const k = scaleK() || 1, hr = 24 / k;
+    if(ED.sel){
+      const ob = findObj(ED.sel);
+      if(ob){
+        const del = corner(ob, -1, -1), sc = corner(ob, 1, 1);
+        if(Math.hypot(pt[0] - del[0], pt[1] - del[1]) <= hr){ deleteSel(); return; }
+        if(Math.hypot(pt[0] - sc[0], pt[1] - sc[1]) <= hr){
+          const op = liveObjsOp(); G.obj = {mode: 'scale', id: ob.id, op, d0: Math.hypot(pt[0] - ob.x, pt[1] - ob.y) || 1, a0: Math.atan2(pt[1] - ob.y, pt[0] - ob.x), s0: ob.scale, r0: ob.rot, moved: false}; return;
+        }
+      }
+    }
+    const id = hitObj(pt[0], pt[1]);
+    if(id){
+      const was = ED.sel === id, op = liveObjsOp(), ob = op.list.find((o)=> o.id === id);
+      ED.sel = id; G.obj = {mode: 'move', id, op, sx: pt[0], sy: pt[1], ox: ob.x, oy: ob.y, moved: false, was, drag: false}; renderPanel(); invalidate();
+    } else { ED.sel = null; renderPanel(); if(ED.zoom.k > 1) G.pan = {x: e.clientX, y: e.clientY, tx: ED.zoom.tx, ty: ED.zoom.ty}; invalidate(); }
+  }
+  function objMove(pt){
+    const g = G.obj, ob = g.op.list.find((o)=> o.id === g.id); if(!ob) return; const k = scaleK() || 1;
+    if(g.mode === 'scale'){
+      const d = Math.hypot(pt[0] - ob.x, pt[1] - ob.y) || 1, a = Math.atan2(pt[1] - ob.y, pt[0] - ob.x);
+      ob.scale = clamp(g.s0 * d / g.d0, .15, 8); ob.rot = g.r0 + (a - g.a0); g.moved = true;
+    } else {
+      const dx = pt[0] - g.sx, dy = pt[1] - g.sy;
+      if(!g.moved && Math.hypot(dx, dy) * k < 5) return;
+      g.moved = true; g.drag = true; ob.x = g.ox + dx; ob.y = g.oy + dy;
+      const r = 34 / k; g.overTrash = Math.hypot(pt[0] - ED.W / 2, pt[1] - (ED.H - r * 1.7)) < r * 1.5;
+    }
+    invalidate();
+  }
+  function objUp(){
+    const g = G.obj; G.obj = null;
+    if(!g.moved){ abortLiveObjs(g.op); if(g.was){ const o = findObj(g.id); if(o && o.type === 'text') openText(o); } invalidate(); return; }
+    if(g.overTrash){ g.op.list = g.op.list.filter((o)=> o.id !== g.id); ED.sel = null; hap(14); }
+    finishLiveObjs(g.op); renderPanel();
+  }
+  function objAbort(){ if(!G.obj) return; abortLiveObjs(G.obj.op); G.obj = null; }
+  function deleteSel(){ if(!ED.sel) return; const id = ED.sel; ED.sel = null; mutateObjs((l)=>{ const i = l.findIndex((o)=> o.id === id); if(i >= 0) l.splice(i, 1); }); renderPanel(); hap(10); }
+
+  /* ================= ТЕКСТ ================= */
+  function openText(o){
+    const d = ED.textDraft; ED.editing = o ? o.id : null;
+    if(o){ d.font = o.font; d.align = o.align; d.bg = o.bg; d.color = o.color; d.text = o.text; }
+    else { d.text = ''; if(!d.color) d.color = ED.color === '#111318' ? '#FFFFFF' : ED.color; }
+    $('#pe-ta', ED.root).value = d.text; $('#pe-text', ED.root).style.display = 'flex'; renderTextSheet();
+    setTimeout(()=> { try{ $('#pe-ta', ED.root).focus(); }catch(_){} }, 60);
+  }
+  function renderTextSheet(){
+    const d = ED.textDraft;
+    $('#pe-ta-fonts', ED.root).innerHTML = FONTS.map((f)=> `<button class="pe-chip${d.font === f.id ? ' on' : ''}" data-font="${f.id}" style="font-family:${f.css};font-weight:${f.w};font-style:${f.st || 'normal'}">${f.name}</button>`).join('');
+    $('#pe-ta-colors', ED.root).innerHTML = PALETTE.map((c)=> `<button class="pe-dot${(d.color || '').toUpperCase() === c ? ' on' : ''}" data-tcolor="${c}" style="background:${c}" aria-label="Цвет"></button>`).join('');
+    $('#pe-ta-align', ED.root).innerHTML = d.align === 'left' ? IC.alignL : d.align === 'right' ? IC.alignR : IC.alignC;
+    $('#pe-ta-bg', ED.root).textContent = d.bg === 'solid' ? '▮' : d.bg === 'outline' ? 'Ⓐ' : d.bg === 'glow' ? '✦' : 'A';
+    styleTextArea();
+  }
+  function styleTextArea(){
+    const d = ED.textDraft, ta = $('#pe-ta', ED.root), f = fontOf(d.font), col = d.color || '#FFFFFF';
+    ta.style.fontFamily = f.css; ta.style.fontWeight = f.w; ta.style.fontStyle = f.st || 'normal'; ta.style.textAlign = d.align;
+    ta.style.color = d.bg === 'solid' ? contrast(col) : col; ta.style.background = d.bg === 'solid' ? col : 'transparent';
+    ta.style.textShadow = d.bg === 'glow' ? `0 0 14px ${col}, 0 0 4px #fff` : d.bg === 'outline' ? `-2px -2px 0 ${contrast(col)},2px -2px 0 ${contrast(col)},-2px 2px 0 ${contrast(col)},2px 2px 0 ${contrast(col)}` : '0 2px 8px rgba(0,0,0,.4)';
+  }
+  function textAction(a){
+    const d = ED.textDraft, m = $('#pe-text', ED.root);
+    if(a === 'cancel'){ m.style.display = 'none'; ED.editing = null; }
+    else if(a === 'align'){ d.align = d.align === 'center' ? 'left' : d.align === 'left' ? 'right' : 'center'; renderTextSheet(); }
+    else if(a === 'bg'){ d.bg = {none: 'solid', solid: 'outline', outline: 'glow', glow: 'none'}[d.bg] || 'none'; renderTextSheet(); }
+    else if(a === 'ok'){
+      const txt = $('#pe-ta', ED.root).value.replace(/\s+$/g, ''); m.style.display = 'none';
+      if(!txt.trim()){ if(ED.editing){ ED.sel = ED.editing; deleteSel(); } ED.editing = null; return; }
+      if(ED.editing){ const id = ED.editing; mutateObjs((l)=>{ const o = l.find((x)=> x.id === id); if(o){ o.text = txt; o.font = d.font; o.align = d.align; o.bg = d.bg; o.color = d.color; } }); ED.sel = id; ED.editing = null; setTool('obj'); }
+      else addObj({type: 'text', text: txt, font: d.font, align: d.align, bg: d.bg, color: d.color || '#FFFFFF', x: ED.W / 2, y: ED.H / 2, rot: 0, scale: 1});
+      hap(10);
+    }
+  }
+
+  /* ================= СТИКЕРЫ ================= */
+  function openStickers(){
+    const m = $('#pe-stk', ED.root); m.style.display = 'flex'; ED.stkTab = ED.stkTab || 0;
+    const tabs = $('#pe-stk-tabs', ED.root);
+    const draw = ()=>{
+      tabs.innerHTML = EMO.map((c, i)=> `<button class="pe-chip${i === ED.stkTab ? ' on' : ''}" data-stab="${i}">${c[0]}</button>`).join('');
+      const grid = $('#pe-stk-grid', ED.root), list = EMO[ED.stkTab][1];
+      grid.innerHTML = list.map((e)=> `<button class="pe-em" data-emo="${e}">${HEROES.indexOf(e) >= 0 && typeof animEmojiUrl === 'function' ? `<img alt="${e}" src="${animEmojiUrl(e)}" onerror="this.replaceWith(document.createTextNode('${e}'))">` : e}</button>`).join('');
+    };
+    draw();
+    tabs.onclick = (ev)=>{ const b = ev.target.closest('[data-stab]'); if(b){ ED.stkTab = +b.dataset.stab; draw(); } };
+    $('#pe-stk-grid', ED.root).onclick = (ev)=>{ const b = ev.target.closest('[data-emo]'); if(!b) return; m.style.display = 'none'; stickerImg(b.dataset.emo); addObj({type: 'sticker', emoji: b.dataset.emo, x: ED.W / 2, y: ED.H / 2, rot: 0, scale: 1}); hap(10); };
+    m.onclick = (ev)=>{ if(ev.target === m) m.style.display = 'none'; };
+  }
+
+  /* ================= ОБРЕЗКА / ПОВОРОТ ================= */
+  function enterCrop(){
+    ED.mode = 'crop'; ED.prevTool = ED.tool === 'crop' ? 'brush' : ED.tool; ED.crop = {x: 0, y: 0, w: ED.W, h: ED.H}; ED.cropRatio = 0; ED.cropKey = '0'; ED.sel = null;
+    ED.root.classList.add('pe-incrop'); resetZoom(); renderPanel(); invalidate();
+  }
+  function exitCrop(){ ED.mode = ''; ED.crop = null; ED.root.classList.remove('pe-incrop'); if(ED.tool === 'crop') ED.tool = 'brush'; renderPanel(); invalidate(); }
+  function setAspect(v){
+    ED.cropKey = v; const r = v === 'orig' ? ED.W / ED.H : +v; ED.cropRatio = r;
+    if(r){ let w = Math.min(ED.W, ED.H * r), h = w / r; ED.crop = {x: (ED.W - w) / 2, y: (ED.H - h) / 2, w, h}; } else ED.crop = {x: 0, y: 0, w: ED.W, h: ED.H};
+    renderPanel(); invalidate();
+  }
+  function cropDown(e){
+    try{ ED.stage.setPointerCapture(e.pointerId); }catch(_){}
+    const pt = toImg(e.clientX, e.clientY), cr = ED.crop, k = scaleK() || 1, hr = 30 / k; let h = '';
+    const near = (x, y)=> Math.hypot(pt[0] - x, pt[1] - y) <= hr;
+    if(near(cr.x, cr.y)) h = 'tl'; else if(near(cr.x + cr.w, cr.y)) h = 'tr'; else if(near(cr.x, cr.y + cr.h)) h = 'bl'; else if(near(cr.x + cr.w, cr.y + cr.h)) h = 'br';
+    else if(!ED.cropRatio){
+      const ex = (x)=> Math.abs(pt[0] - x) <= hr * .7, ey = (y)=> Math.abs(pt[1] - y) <= hr * .7, inX = pt[0] > cr.x && pt[0] < cr.x + cr.w, inY = pt[1] > cr.y && pt[1] < cr.y + cr.h;
+      if(ex(cr.x) && inY) h = 'l'; else if(ex(cr.x + cr.w) && inY) h = 'r'; else if(ey(cr.y) && inX) h = 't'; else if(ey(cr.y + cr.h) && inX) h = 'b';
+    }
+    if(!h && pt[0] > cr.x && pt[0] < cr.x + cr.w && pt[1] > cr.y && pt[1] < cr.y + cr.h) h = 'move';
+    if(h) G.crop = {h, r0: Object.assign({}, cr), p0: pt};
+  }
+  function cropMove(e){
+    if(!G.crop) return; const pt = toImg(e.clientX, e.clientY), g = G.crop, r0 = g.r0, MIN = Math.max(40, Math.min(ED.W, ED.H) * .08);
+    if(g.h === 'move'){ ED.crop = {x: clamp(r0.x + pt[0] - g.p0[0], 0, ED.W - r0.w), y: clamp(r0.y + pt[1] - g.p0[1], 0, ED.H - r0.h), w: r0.w, h: r0.h}; invalidate(); return; }
+    let x1 = r0.x, y1 = r0.y, x2 = r0.x + r0.w, y2 = r0.y + r0.h;
+    if(g.h.includes('l')) x1 = clamp(pt[0], 0, x2 - MIN); if(g.h.includes('r')) x2 = clamp(pt[0], x1 + MIN, ED.W);
+    if(g.h.includes('t')) y1 = clamp(pt[1], 0, y2 - MIN); if(g.h.includes('b')) y2 = clamp(pt[1], y1 + MIN, ED.H);
+    if(ED.cropRatio && g.h.length === 2){
+      let w = x2 - x1, h = y2 - y1; if(w / h > ED.cropRatio) w = h * ED.cropRatio; else h = w / ED.cropRatio;
+      if(g.h.includes('l')) x1 = x2 - w; else x2 = x1 + w; if(g.h.includes('t')) y1 = y2 - h; else y2 = y1 + h;
+    }
+    ED.crop = {x: x1, y: y1, w: x2 - x1, h: y2 - y1}; invalidate();
+  }
+  function flatten(){ const c = mk(ED.W, ED.H); composeTo(c.getContext('2d'), true); return c; }
+  function bakeXform(kind){
+    const cur = flatten(), W = ED.W, H = ED.H; let out;
+    if(kind === 'flip'){ out = mk(W, H); const c = out.getContext('2d'); c.translate(W, 0); c.scale(-1, 1); c.drawImage(cur, 0, 0); }
+    else { out = mk(H, W); const c = out.getContext('2d'); if(kind === 'rotr'){ c.translate(H, 0); c.rotate(Math.PI / 2); } else { c.translate(0, W); c.rotate(-Math.PI / 2); } c.drawImage(cur, 0, 0); }
+    pushOp({t: 'bake', after: out}); refreshBase(false); resetZoom(); relayout();
+    if(ED.mode === 'crop'){ ED.crop = {x: 0, y: 0, w: ED.W, h: ED.H}; ED.cropRatio = 0; ED.cropKey = '0'; renderPanel(); }
+  }
+  function applyCrop(){
+    const cr = ED.crop; if(!cr) return;
+    if(cr.w >= ED.W - 1 && cr.h >= ED.H - 1){ setTool(ED.prevTool || 'brush'); return; }
+    const cur = flatten(), out = mk(cr.w, cr.h); out.getContext('2d').drawImage(cur, -Math.round(cr.x), -Math.round(cr.y));
+    pushOp({t: 'bake', after: out}); ED.mode = ''; ED.crop = null; ED.root.classList.remove('pe-incrop'); ED.tool = ED.prevTool || 'brush';
+    refreshBase(false); resetZoom(); relayout(); renderPanel(); hap(12);
+  }
+
+  /* ================= СОХРАНЕНИЕ / ОТПРАВКА ================= */
+  async function preloadStickers(){ await Promise.all(curObjs().filter((o)=> o.type === 'sticker').map((o)=>{ stickerImg(o.emoji); const r = ED.stk.get(o.emoji); return r && r.p ? r.p : null; })); }
+  async function exportJpeg(maxSide, q, limit){
+    await preloadStickers();
+    const full = mk(ED.W, ED.H), fc = full.getContext('2d'); fc.fillStyle = '#FFFFFF'; fc.fillRect(0, 0, ED.W, ED.H); composeTo(fc, true);
+    let side = maxSide, url = '';
+    for(let i = 0; i < 6; i++){
+      const s = Math.min(1, side / Math.max(ED.W, ED.H)), c = s < 1 ? mk(ED.W * s, ED.H * s) : full;
+      if(c !== full){ const x = c.getContext('2d'); x.imageSmoothingQuality = 'high'; x.drawImage(full, 0, 0, c.width, c.height); }
+      for(let qq = q; qq >= .55; qq -= .08){ url = c.toDataURL('image/jpeg', qq); if(!limit || url.length <= limit) return url; }
+      side = Math.round(side * .82);
+    }
+    return url;
+  }
+  function saveCopy(){
+    exportJpeg(Math.max(ED.W, ED.H), .92, 0).then((url)=>{ const a = document.createElement('a'); a.href = url; a.download = 'photo-' + Date.now() + '.jpg'; document.body.appendChild(a); a.click(); a.remove(); toast('Сохранено'); }).catch(()=> toast('Не удалось сохранить'));
+  }
+  async function finish(){
+    if(ED.opts.mode === 'return'){
+      try{ const url = await exportJpeg(1280, .84, 750000); close(true); ED.opts.onDone && ED.opts.onDone(url); }catch(_){ toast('Не удалось подготовить фото'); }
+      return;
+    }
+    if(typeof state === 'undefined' || !state.activeChatId){ toast('Откройте чат, чтобы отправить фото'); return; }
+    $('#pe-send', ED.root).style.display = 'flex'; setTimeout(()=> { try{ $('#pe-cap', ED.root).focus(); }catch(_){} }, 80);
+  }
+  async function sendNow(){
+    const cap = $('#pe-cap', ED.root).value.trim(); let url;
+    try{ url = await exportJpeg(1280, .84, 750000); }catch(_){ toast('Не удалось подготовить фото'); return; }
+    try{
+      const input = document.getElementById('msg-input'), sv = {img: state.pendingImages, files: state.pendingFiles, vids: state.pendingVideos, txt: input.value, reply: state.replyingTo};
+      state.pendingImages = [{dataUrl: url, name: 'edited-' + Date.now() + '.jpg'}]; state.pendingFiles = []; state.pendingVideos = []; input.value = cap;
+      const m = ED.opts.replyMsg;
+      state.replyingTo = m ? {id: m.id, preview: typeof msgPreviewText === 'function' ? msgPreviewText(m) : 'Фото', fromUsername: m.from === state.currentUser.uid ? 'себе' : (state.activeChatMeta && typeof otherOf === 'function' ? otherOf(state.activeChatMeta).displayName : '')} : null;
+      const pr = doSend();                              /* дальше приложение отправляет как обычное фото */
+      state.pendingImages = sv.img || []; state.pendingFiles = sv.files || []; state.pendingVideos = sv.vids || []; input.value = sv.txt || '';
+      if(sv.reply){ state.replyingTo = sv.reply; const b = document.getElementById('reply-preview-bar'); if(b) b.style.display = 'flex'; }
+      try{ renderImgPreviews(); updateSendBtnVisibility(); }catch(_){}
+      Promise.resolve(pr).catch(()=>{});
+      close(true); try{ typeof closeLightbox === 'function' && closeLightbox(); }catch(_){}
+    }catch(err){ toast('Не получилось отправить'); }
+  }
+
+  /* ================= ОТКРЫТЬ / ЗАКРЫТЬ ================= */
+  async function loadSrc(src){
+    const toCanvas = (im)=>{ let w = im.naturalWidth || im.width, h = im.naturalHeight || im.height; const s = Math.min(1, MAXS / Math.max(w, h)); w = Math.max(1, Math.round(w * s)); h = Math.max(1, Math.round(h * s)); const c = mk(w, h), x = c.getContext('2d'); x.fillStyle = '#FFFFFF'; x.fillRect(0, 0, w, h); x.imageSmoothingQuality = 'high'; x.drawImage(im, 0, 0, w, h); return c; };
+    const load = (u, cors)=> new Promise((res, rej)=>{ const im = new Image(); if(cors) im.crossOrigin = 'anonymous'; im.onload = ()=> res(im); im.onerror = ()=> rej(new Error('img')); im.src = u; });
+    if(/^(data|blob):/.test(src)) return toCanvas(await load(src, false));
+    try{ const r = await fetch(src, {mode: 'cors'}), b = await r.blob(); return toCanvas(await load(URL.createObjectURL(b), false)); }
+    catch(_){ return toCanvas(await load(src, true)); }
+  }
+  async function open(opts){
+    opts = opts || {}; ensureDom(); ED.opts = opts;
+    Object.assign(ED, {open: true, stack: [], redo: [], sel: null, mode: '', dirty: false, tool: 'brush', eyedrop: false, zoom: {k: 1, tx: 0, ty: 0}, base: null, thumbBase: null});
+    ED.root.style.display = 'flex'; ED.root.classList.remove('pe-incrop'); $('#pe-load', ED.root).style.display = ''; $('#pe-zoom', ED.root).style.visibility = 'hidden';
+    ['#pe-text', '#pe-stk', '#pe-send'].forEach((q)=> $(q, ED.root).style.display = 'none'); $('#pe-cap', ED.root).value = '';
+    renderPanel();
+    try{
+      ED.orig = await loadSrc(opts.src);
+    }catch(err){ ED.open = false; ED.root.style.display = 'none'; try{ window.toast ? window.toast('Не удалось открыть фото для рисования') : alert('Не удалось открыть фото'); }catch(_){} return; }
+    $('#pe-load', ED.root).style.display = 'none'; $('#pe-zoom', ED.root).style.visibility = '';
+    refreshBase(true); relayout(); renderPanel(); syncUI();
+  }
+  function close(force){
+    ED.open = false; ED.root.style.display = 'none'; G = {}; P.clear(); if(ED.raf){ cancelAnimationFrame(ED.raf); ED.raf = 0; }
+    ED.stack = []; ED.redo = []; ED.base = ED.orig = ED.fbase = ED.draw = ED.live = ED.tmp = ED.pix = ED.blur = null;
+  }
+  async function requestClose(){
+    if(ED.mode === 'crop'){ setTool('brush'); return; }
+    if(modalOpen()){ ['#pe-text', '#pe-stk', '#pe-send'].forEach((q)=> $(q, ED.root).style.display = 'none'); return; }
+    if(ED.dirty){ let ok = true; try{ ok = typeof uiConfirm === 'function' ? await uiConfirm('Закрыть без сохранения? Все правки будут потеряны.') : confirm('Закрыть без сохранения?'); }catch(_){} if(!ok) return; }
+    close(true);
+  }
+
+  window.openPhotoEditor = open;
+  window.__peDebug = {ED, P, get G(){ return G; }, undo, redo, setTool, exportJpeg, curObjs, bakeXform, applyCrop, setAspect, textAction, openText, addObj, startDraw, extendDraw, endDraw, brushPx, toImg, hitObj, objBox, filterCanvas, PRESETS, enterCrop};
+
+  /* ================= ПОДКЛЮЧЕНИЕ К ПРИЛОЖЕНИЮ ================= */
+  const myMsgBySrc = (src)=> { try{ return (state.currentMessages || []).find((m)=> m.type === 'image' && m.content === src); }catch(_){ return null; } };
+  const replyFor = (m)=> (m && state.currentUser && m.from !== state.currentUser.uid) ? m : null;
+  /* 1) кнопка ✏️ в просмотре фото */
+  (function(){
+    const lb = document.getElementById('lightbox'); if(!lb || document.getElementById('lightbox-edit')) return;
+    const b = document.createElement('button'); b.id = 'lightbox-edit'; b.title = 'Рисовать на фото'; b.innerHTML = IC.pen; b.style.display = 'none';
+    const dl = document.getElementById('lightbox-download'); dl ? dl.after(b) : lb.appendChild(b);
+    b.onclick = (e)=>{ e.stopPropagation(); const src = lightboxGallery[lightboxIndex]; window.openPhotoEditor({src, mode: 'send', replyMsg: replyFor(myMsgBySrc(src))}); };
+    const wrap = (name)=>{ const orig = window[name]; if(typeof orig !== 'function') return; window[name] = function(){ const r = orig.apply(this, arguments); try{ b.style.display = (!lightboxOwnerUid && state.activeChatId) ? 'flex' : 'none'; }catch(_){} return r; }; };
+    wrap('updateLightboxImage');
+  })();
+  /* 2) пункт «Нарисовать на фото» в меню сообщения */
+  (function(){
+    const orig = window.openMsgActionSheet; if(typeof orig !== 'function') return;
+    window.openMsgActionSheet = function(id){
+      const r = orig.apply(this, arguments);
+      try{
+        const m = (state.currentMessages || []).find((x)=> x.id === id), panel = document.getElementById('msg-action-sheet-panel');
+        let btn = document.getElementById('msg-action-draw');
+        if(!btn){ btn = document.createElement('button'); btn.type = 'button'; btn.id = 'msg-action-draw'; const ref = document.getElementById('msg-action-reply'); ref ? ref.after(btn) : panel.appendChild(btn); }
+        btn.innerHTML = `${IC.pen}<span>Нарисовать на фото</span>`;
+        btn.style.display = m && m.type === 'image' && m.content ? 'flex' : 'none';
+        btn.onclick = ()=>{ closeMsgActionSheet(); window.openPhotoEditor({src: m.content, mode: 'send', replyMsg: replyFor(m)}); };
+      }catch(_){}
+      return r;
+    };
+  })();
+  /* 3) значок ✏️ на фото, которое готовится к отправке */
+  (function(){
+    const orig = window.renderImgPreviews; if(typeof orig !== 'function') return;
+    window.renderImgPreviews = function(){
+      const r = orig.apply(this, arguments);
+      try{
+        document.querySelectorAll('#img-preview-row .img-preview').forEach((el, i)=>{
+          if(el.querySelector('.pe-edit')) return;
+          const b = document.createElement('div'); b.className = 'pe-edit'; b.innerHTML = IC.pen;
+          b.onclick = (e)=>{ e.stopPropagation(); const it = state.pendingImages[i]; if(!it) return; window.openPhotoEditor({src: it.dataUrl, mode: 'return', onDone: (url)=>{ if(state.pendingImages[i]){ state.pendingImages[i].dataUrl = url; window.renderImgPreviews(); } }}); };
+          el.appendChild(b);
+        });
+      }catch(_){}
+      return r;
+    };
+  })();
+})();
