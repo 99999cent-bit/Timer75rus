@@ -62,7 +62,7 @@ try {
       vibrate: [180, 80, 180],
       timestamp: Date.now(),
       lang: 'ru',
-      data: { chatId: d.chatId || '', sender: d.sender || '', type: d.type || '' }
+      data: { chatId: d.chatId || '', sender: d.sender || '', type: d.type || '', target: d.target || '' }
     });
   });
 } catch (e) {}
@@ -82,7 +82,8 @@ self.addEventListener('notificationclick', (event) => {
   const tag = String((event.notification && event.notification.tag) || '');
   let target = '';
   if(!chatId){
-    if(/^cal-/.test(tag)) target = 'cal:' + tag.slice(4);
+    if(data.target) target = String(data.target);                   /* напоминание от сервера уже знает, что открыть */
+    else if(/^cal-/.test(tag)) target = 'cal:' + tag.slice(4);
     else if(data.type && data.type !== 'test' && data.type !== 'call_end') target = data.type + ':' + (data.sender || '');
   }
   const url = APP_BASE + (chatId ? '?chat=' + encodeURIComponent(chatId) : (target ? '?target=' + encodeURIComponent(target) : ''));
