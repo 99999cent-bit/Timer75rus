@@ -7246,18 +7246,41 @@ Object.assign(window.__AM_ORIGIN || (window.__AM_ORIGIN = {}), {lid: '50% 0%', s
     add(!!window.__calLoaded, 'Календарь', window.__calLoaded ? 'Данные загружены' : 'Данные календаря ещё не загрузились — расписание не отправляется (так сделано, чтобы не стереть его пустым списком).');
     const srvOk = Date.now() - srvOkAt < TTL;
     add(srvOk ? true : null, 'Сервер напоминаний', srvOk ? 'Принял ' + srvCount + ' шт. (' + ago(srvOkAt) + '), устройств для push: ' + srvTokens : 'Нет связи с сервером. Займы и браузерные push работают только через него.');
+    add(null, 'Очередь на сервере', 'Проверяю…');
     if(!A && 'Notification' in window) add(Notification.permission === 'granted', 'Уведомления браузера', Notification.permission === 'granted' ? 'Разрешены' : 'Не разрешены в браузере — push не придут.');
     const html = `<div id="rd-card"><h3>Проверка напоминаний</h3><div class="rd-sub">Календарь и займы. Здесь видно, дошло ли расписание до телефона и что может мешать.</div>
       ${tapped ? '<div class="rd-ok">✅ Нажатие по уведомлению сработало: оно открыло приложение на этом экране.</div>' : ''}
-      ${rows.map((r, i)=> `<div class="rd-row"><div class="rd-ic">${r.ok === true ? '✅' : r.ok === false ? '❌' : '⚠️'}</div><div class="rd-t"><b>${r.title}</b><span>${r.text}</span></div>${r.fix ? `<button class="rd-fix" data-fix="${r.fix[0]}">${r.fix[1]}</button>` : ''}</div>`).join('')}
-      <div class="rd-btns">${A && A.remindersTest ? '<button class="main" data-a="test">Проверить через 15 секунд</button>' : ''}<button data-a="sync">Передать расписание сейчас</button><button data-a="close">Закрыть</button></div></div>`;
+      ${rows.map((r, i)=> `<div class="rd-row"><div class="rd-ic">${r.ok === true ? '✅' : r.ok === false ? '❌' : '⚠️'}</div><div class="rd-t"${r.title === 'Очередь на сервере' ? ' id="rd-srvq"' : ''}><b>${r.title}</b><span>${r.text}</span></div>${r.fix ? `<button class="rd-fix" data-fix="${r.fix[0]}">${r.fix[1]}</button>` : ''}</div>`).join('')}
+      <div class="rd-btns"><button class="main" data-a="push">Проверить push с сервера</button>${A && A.remindersTest ? '<button data-a="test">Проверить будильник (15 с)</button>' : ''}<button data-a="sync">Передать расписание сейчас</button><button data-a="close">Закрыть</button></div></div>`;
     const ov = document.createElement('div'); ov.id = 'rd-ov'; ov.innerHTML = html; document.body.appendChild(ov);
+    (async()=>{                                                      /* что у сервера: очередь, доставленное, итог последней отправки */
+      let r = null; try{ r = typeof window.askPush === 'function' ? await window.askPush('/reminders/status', {}) : null; }catch(_){}
+      const box = document.getElementById('rd-srvq'); if(!box) return;
+      const ic = box.previousElementSibling;
+      if(!r || typeof r.queued !== 'number'){
+        if(ic) ic.textContent = '❌';
+        box.querySelector('span').textContent = 'Сервер не отвечает на проверку. Скорее всего, на Railway ещё старая версия: перезапустите сервис (Redeploy). Если открыть адрес сервера в браузере, в ответе должно быть "reminders":true.';
+        return;
+      }
+      const lp = r.lastPush ? 'Последняя отправка push: ' + ago(r.lastPush.at) + ' — ' + (r.lastPush.sent > 0 ? 'ушла на ' + r.lastPush.sent + ' устр.' : '❌ не ушла' + (r.lastPush.reason ? ' (' + esc(r.lastPush.reason) + ')' : '') + (r.lastPush.errors && r.lastPush.errors.length ? ' ' + esc(r.lastPush.errors.join('; ')) : '')) + '. ' : '';
+      if(ic) ic.textContent = r.queued > 0 || r.sentCount > 0 ? '✅' : '⚠️';
+      box.querySelector('span').innerHTML = (r.queued > 0 ? 'Ждёт ' + r.queued + ' шт. Ближайшее: ' + fmt(r.next) + ' — ' + esc(r.nextTitle) + '. ' : 'Пусто (напоминаний впереди нет). ') + 'Доставлено за 3 дня: ' + r.sentCount + '. ' + lp;
+    })();
     ov.addEventListener('click', async (e)=>{
       if(e.target === ov){ ov.remove(); return; }
       const f = e.target.closest('[data-fix]'); if(f){ try{ A.remindersSettings(f.dataset.fix); }catch(_){} return; }
       const b = e.target.closest('[data-a]'); if(!b) return;
       if(b.dataset.a === 'close') ov.remove();
       else if(b.dataset.a === 'sync'){ b.textContent = 'Отправляю…'; await sync(true); openDiag(false); }
+      else if(b.dataset.a === 'push'){
+        b.textContent = 'Отправляю…'; let r = null; try{ r = await window.askPush('/reminders/test', {}); }catch(_){}
+        b.textContent = 'Проверить push с сервера';
+        let msg;
+        if(!r || typeof r.sent !== 'number') msg = 'Сервер не ответил: на Railway ещё старая версия — перезапустите сервис';
+        else if(r.sent > 0) msg = 'Отправлено на ' + r.sent + ' устр. Заблокируйте экран — уведомление придёт за несколько секунд';
+        else msg = 'Не отправлено: ' + (r.reason || (r.errors && r.errors[0]) || 'неизвестная причина');
+        try{ toast(msg); }catch(_){}
+      }
       else if(b.dataset.a === 'test'){ let ok = false; try{ ok = !!A.remindersTest(15); }catch(_){} try{ toast(ok ? 'Заблокируйте экран и подождите 15 секунд — придёт уведомление' : 'Не получилось поставить проверку'); }catch(_){} ov.remove(); }
     });
   }
